@@ -1,8 +1,4 @@
 Parameters:
-  AdminUserEmail:
-    Description: Email address of administrative user to setup by default (only with new Cognito instances).
-    Type: String
-    Default: ''
   PublicEcrImageUri:
     Description: When specified, the URI of the Docker image for the Lambda of the ParallelCluster UI container
     Type: String
@@ -19,16 +15,28 @@ Parameters:
     Description: Comma separated list of security groups to be associated with the PCUI Lambda function.
     Type: CommaDelimitedList
     Default: ''
+  CognitoRegion:
+    Description: Region in which Cognito stack was deployed.
+    Type: String
+    Default: ''
+  CognitoAppClient:
+    Description: The id of the Cognito app client.
+    Type: String
+    Default: ''
+  CognitoAccessKey:
+    Description: The access key for Cognito.
+    Type: String
+    Default: ''
+  CognitoSecretKey:
+    Description: The secret key for Cognito.
+    Type: String
+    Default: ''
   UserPoolId:
     Description: UserPoolId of a previously deployed PCUI Cognito User Pool. Leave blank to create a new one.
     Type: String
     Default: ''
   UserPoolAuthDomain:
     Description: UserPoolAuthDomain of a previously deployed PCUI Cognito User Pool. Leave blank to create a new one.
-    Type: String
-    Default: ''
-  SNSRole:
-    Description: SNSRole ARN of a previously deployed PCUI Cognito Stack. Leave blank to create a new one.
     Type: String
     Default: ''
   Version:
@@ -65,10 +73,6 @@ Parameters:
 Metadata:
   AWS::CloudFormation::Interface:
     ParameterGroups:
-      - Label: 
-          default: Admin User (only with new Cognito instances)
-        Parameters: 
-          - AdminUserEmail
       - Label:
           default: ParallelCluster UI
         Parameters:
@@ -80,11 +84,14 @@ Metadata:
           - LambdaSubnetIds
           - LambdaSecurityGroupIds
       - Label:
-          default: (Optional) External PCUI Cognito
+          default: External PCUI Cognito
         Parameters:
+          - CognitoRegion
+          - CognitoAppClient
+          - CognitoAccessKey
+          - CognitoSecretKey
           - UserPoolId
           - UserPoolAuthDomain
-          - SNSRole
       - Label:
           default: ParallelCluster API
         Parameters:
@@ -106,14 +113,10 @@ Metadata:
           - InfrastructureBucket
 
     ParameterLabels:
-      AdminUserEmail:
-        default: Admin's Email
       UserPoolId:
         default: UserPoolId from a previously deployed PCUI
       UserPoolAuthDomain:
         default: UserPoolAuthDomain from a previously deployed PCUI
-      SNSRole:
-        default: SNSRole ARN from a previously deployed PCUI
 
 Conditions:
   NonDefaultVpc:
@@ -122,13 +125,6 @@ Conditions:
       - !Not [!Equals [!Ref ImageBuilderSubnetId, ""]]
   IsPrivate: !Not [!Equals [!Ref VpcEndpointId, ""]]
   HasDefaultInfrastructure: !Equals [!Ref InfrastructureBucket, '']
-  UseExistingCognito:
-    !And
-      - !Not [!Equals [!Ref UserPoolId, ""]]
-      - !Not [!Equals [!Ref UserPoolAuthDomain, ""]]
-      - !Not [!Equals [!Ref SNSRole, ""]]
-  UseNewCognito:
-    !Not [ Condition: UseExistingCognito]
   UseNonDockerizedPCAPI:
     !Not [ Condition: UseDockerizedPCAPI]
   UseDockerizedPCAPI: !And
@@ -151,24 +147,6 @@ Mappings:
       Version: 2024.03.0 # format YYYY.MM.REVISION
 
 Resources:
-
-  Cognito:
-    Condition: UseNewCognito
-    Type: AWS::CloudFormation::Stack
-    DeletionPolicy: Retain
-    Properties:
-      Parameters:
-        AdminUserEmail: !Ref AdminUserEmail
-        PermissionsBoundaryPolicy: !Ref PermissionsBoundaryPolicy
-        IAMRoleAndPolicyPrefix: !Ref IAMRoleAndPolicyPrefix
-      TemplateURL: !Sub
-        - '${Bucket}/parallelcluster-ui-cognito.yaml'
-        - Bucket: !If 
-          - HasDefaultInfrastructure
-          - PLACEHOLDER
-          - !Sub ${InfrastructureBucket}
-
-      TimeoutInMinutes: 10
 
   ParallelClusterApi:
     Type: AWS::CloudFormation::Stack
@@ -222,9 +200,12 @@ Resources:
           SITE_URL: !Sub
            - https://${Api}.execute-api.${AWS::Region}.${AWS::URLSuffix}/pcui
            - Api: !Ref ApiGatewayRestApi
-          AUTH_PATH: !If [ UseExistingCognito, !Ref UserPoolAuthDomain, !GetAtt [ Cognito, Outputs.UserPoolAuthDomain ]]
+          AUTH_PATH: !Ref UserPoolAuthDomain
           SECRET_ID: !GetAtt UserPoolClientSecret.SecretName
           AUDIENCE: !Ref CognitoAppClient
+          COGNITO_REGION: !Ref CognitoRegion
+          COGNITO_ACCESS_KEY: !Ref CognitoAccessKey
+          COGNITO_SECRET_KEY: !Ref CognitoSecretKey
           OIDC_PROVIDER: 'Cognito'
       FunctionName: !Sub
         - ParallelClusterUIFun-${StackIdSuffix}
@@ -357,161 +338,6 @@ Resources:
           HttpMethod: '*'
           ThrottlingBurstLimit: 50
           ThrottlingRateLimit: 100
-
-  CognitoAppClient:
-    Type: AWS::Cognito::UserPoolClient
-    Properties:
-      GenerateSecret: true
-      AllowedOAuthFlows:
-        - code
-      AllowedOAuthFlowsUserPoolClient: true
-      AllowedOAuthScopes:
-        - email
-        - openid
-      ExplicitAuthFlows:
-        - ALLOW_REFRESH_TOKEN_AUTH
-      CallbackURLs:
-        - !Sub
-          - https://${Api}.execute-api.${AWS::Region}.${AWS::URLSuffix}/pcui/login
-          - Api: !Ref ApiGatewayRestApi
-      SupportedIdentityProviders:
-        - COGNITO
-      UserPoolId: !If [ UseExistingCognito, !Ref UserPoolId, !GetAtt [ Cognito, Outputs.UserPoolId ]]
-      PreventUserExistenceErrors: ENABLED
-      RefreshTokenValidity: 7
-      AccessTokenValidity: 5
-      IdTokenValidity: 5
-      TokenValidityUnits:
-        AccessToken: "minutes"
-        IdToken: "minutes"
-
-  UserPoolClientSecret:
-    Type: Custom::UserPoolClientSecret
-    Properties:
-      ServiceToken: !GetAtt UserPoolClientSecretFunction.Arn
-      UserPoolId: !If [ UseExistingCognito, !Ref UserPoolId, !GetAtt [ Cognito, Outputs.UserPoolId ]]
-      AppClientId: !Ref CognitoAppClient
-
-  UserPoolClientSecretFunction:
-    Type: AWS::Lambda::Function
-    Properties:
-      Handler: index.handler
-      Runtime: python3.9
-      MemorySize: 128
-      Timeout: 20
-      TracingConfig:
-        Mode: Active
-      Role: !GetAtt UserPoolClientSecretRole.Arn
-      Code:
-        ZipFile: |
-          import cfnresponse
-          import boto3
-          import random
-          import string
-          import json
-
-          cognito = boto3.client("cognito-idp")
-          secretsmanager = boto3.client("secretsmanager")
-
-          def generate_secret(stack_name, resource_id):
-              alnum = string.ascii_uppercase + string.digits
-              return f"{stack_name}-{resource_id}-" + "".join(random.choice(alnum) for _ in range(12))
-
-          def handler(event, context):
-              print(event)
-              print("boto version {}".format(boto3.__version__))
-
-              stack_name = event["StackId"].split("/")[1]
-              user_pool_id = event["ResourceProperties"]["UserPoolId"]
-              app_client_id = event["ResourceProperties"]["AppClientId"]
-              logical_resource_id = event["LogicalResourceId"]
-
-              response_data = {}
-              reason = None
-              response_status = cfnresponse.SUCCESS
-              try:
-                  if event["RequestType"] == "Create":
-                      response_data["Message"] = "Resource creation successful!"
-
-                      user_pool_client = cognito.describe_user_pool_client(UserPoolId=user_pool_id, ClientId=app_client_id)
-                      client_secret = user_pool_client["UserPoolClient"]["ClientSecret"]
-                      secret_name = generate_secret(stack_name, logical_resource_id)
-
-                      secret = json.dumps({"userPoolId": user_pool_id, "clientId": app_client_id, "clientSecret": client_secret})
-
-                      resp = secretsmanager.create_secret(
-                          Name=secret_name,
-                          Description=f"Client Secret for {app_client_id} / user pool {user_pool_id}",
-                          SecretString=secret,
-                          Tags=[
-                              {"Key": "custom:cloudformation:stack-name", "Value": stack_name},
-                              {"Key": "custom:cloudformation:logical-id", "Value": logical_resource_id},
-                          ],
-                      )
-                      response_data = {"SecretArn": resp["ARN"], "SecretName": resp["Name"], "SecretVersionId": resp["VersionId"]}
-
-                  elif event["RequestType"] == "Update":
-                      user_pool_client = cognito.describe_user_pool_client(UserPoolId=user_pool_id, ClientId=app_client_id)
-                      client_secret = user_pool_client["UserPoolClient"]["ClientSecret"]
-                      secret_name = event["PhysicalResourceId"]
-                      secret = json.dumps({"userPoolId": user_pool_id, "clientId": app_client_id, "clientSecret": client_secret})
-                      resp = secretsmanager.update_secret(
-                          SecretId=secret_name,
-                          Description=f"Client Secret for {app_client_id} / user pool {user_pool_id}",
-                          SecretString=secret,
-                      )
-                      response_data = {"SecretArn": resp["ARN"], "SecretName": resp["Name"], "SecretVersionId": resp["VersionId"]}
-
-                  else:
-                      secret_name = event["PhysicalResourceId"]
-                      resp = secretsmanager.delete_secret(SecretId=secret_name, ForceDeleteWithoutRecovery=True)
-                      response_data = {"SecretArn": resp["ARN"], "SecretName": resp["Name"]}
-
-              except Exception as exception:
-                  response_status = cfnresponse.FAILED
-                  reason = "Failed {}: {}".format(event["RequestType"], exception)
-
-              cfnresponse.send(event, context, response_status, response_data, secret_name, reason)
-
-  UserPoolClientSecretRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: !Sub
-        - ${IAMRoleAndPolicyPrefix}UserPoolClientSecretRole-${StackIdSuffix}
-        - { StackIdSuffix: !Select [ 0, !Split [ '-', !Select [ 2, !Split [ '/', !Ref 'AWS::StackId' ] ] ] ] }
-      AssumeRolePolicyDocument:
-        Version: 2012-10-17
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service: lambda.amazonaws.com
-            Action:
-              - 'sts:AssumeRole'
-      Policies:
-        - PolicyName: !Sub ${IAMRoleAndPolicyPrefix}UserPoolPermissions
-          PolicyDocument:
-            Version: 2012-10-17
-            Statement:
-              - Effect: Allow
-                Action:
-                  - cognito-idp:DescribeUserPoolClient
-                Resource:
-                  - !Sub
-                    - arn:${AWS::Partition}:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${UserPoolId}
-                    - { UserPoolId: !If [UseExistingCognito, !Ref UserPoolId, !GetAtt [ Cognito, Outputs.UserPoolId ]]}
-        - PolicyName: !Sub ${IAMRoleAndPolicyPrefix}SecretsManagerPermissions
-          PolicyDocument:
-            Version: 2012-10-17
-            Statement:
-              - Effect: Allow
-                Action:
-                  - secretsmanager:CreateSecret
-                  - secretsmanager:TagResource
-                  - secretsmanager:UpdateSecret
-                  - secretsmanager:DeleteSecret
-                Resource:
-                  - !Sub arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AWS::StackName}*
-      PermissionsBoundary: !If [UsePermissionBoundary, !Ref PermissionsBoundaryPolicy, !Ref 'AWS::NoValue']
 
   PrivateEcrRepository:
     DependsOn: ParallelClusterApi
@@ -782,7 +608,6 @@ Resources:
         # Access to the ParllelCluster API
         - !Ref ParallelClusterApiGatewayInvoke
         # Required to run ParallelClusterUI functionalities
-        - !Ref CognitoPolicy
         - !Ref EC2Policy
         - !Ref DescribeFsxPolicy
         - !Ref DescribeEfsPolicy
@@ -817,34 +642,6 @@ Resources:
             Resource: !Sub
               - arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${PCApiGateway}/*/*
               - { PCApiGateway: !Select [2, !Split ['/', !Select [0, !Split ['.', !GetAtt [ ParallelClusterApi, Outputs.ParallelClusterApiInvokeUrl ]]]]] }
-
-  CognitoPolicy:
-    Type: AWS::IAM::ManagedPolicy
-    Properties:
-      ManagedPolicyName: !Sub
-        - ${IAMRoleAndPolicyPrefix}CognitoPolicy-${StackIdSuffix}
-        - { StackIdSuffix: !Select [ 0, !Split [ '-', !Select [ 2, !Split [ '/', !Ref 'AWS::StackId']]]] }
-      PolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Action:
-            - cognito-idp:AdminRemoveUserFromGroup
-            - cognito-idp:AdminAddUserToGroup
-            - cognito-idp:AdminListGroupsForUser
-            - cognito-idp:ListUsers
-            - cognito-idp:AdminCreateUser
-            - cognito-idp:AdminDeleteUser
-            Resource: !Sub
-              - arn:${AWS::Partition}:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${UserPoolId}
-              - { UserPoolId: !If [UseExistingCognito, !Ref UserPoolId, !GetAtt [ Cognito, Outputs.UserPoolId ]]}
-            Effect: Allow
-            Sid: CognitoPolicy
-          - Action:
-            - secretsmanager:GetSecretValue
-            Resource:
-              - !GetAtt UserPoolClientSecret.SecretArn
-            Effect: Allow
-            Sid: SecretsRole
 
   EC2Policy:
     Type: AWS::IAM::ManagedPolicy
@@ -1014,9 +811,6 @@ Outputs:
     Value: !Sub
       - https://${Api}.execute-api.${AWS::Region}.${AWS::URLSuffix}/pcui
       - Api: !Ref ApiGatewayRestApi
-  AppClientId:
-    Description: The id of the Cognito app client
-    Value: !Ref CognitoAppClient
   UserPoolClientSecretArn:
     Description: The app client secret ARN for ParallelCluster UI.
     Value: !GetAtt UserPoolClientSecret.SecretArn

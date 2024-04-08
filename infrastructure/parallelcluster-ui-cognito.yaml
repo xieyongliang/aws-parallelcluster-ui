@@ -17,7 +17,7 @@ Parameters:
     Description: 'Prefix applied to the name of every IAM role and policy (max length: 10)'
     Default: ''
     MaxLength: 10
-
+  
 Conditions:
   GovCloud: !Equals [!Ref AWS::Region, 'us-gov-west-1']
   UsePermissionBoundary: !Not [ !Equals [ !Ref PermissionsBoundaryPolicy, '' ] ]
@@ -44,30 +44,6 @@ Metadata:
 
 
 Resources:
-  SNSRole:
-    Type: AWS::IAM::Role
-    Properties:
-      RoleName: !Sub
-        - ${IAMRoleAndPolicyPrefix}SNSRole-${StackIdSuffix}
-        - { StackIdSuffix: !Select [ 0, !Split [ '-', !Select [ 2, !Split [ '/', !Ref 'AWS::StackId' ] ] ] ] }
-      AssumeRolePolicyDocument:
-        Version: 2012-10-17
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service:
-                - cognito-idp.amazonaws.com
-            Action:
-              - sts:AssumeRole
-      Policies:
-        - PolicyName: !Sub ${IAMRoleAndPolicyPrefix}SNSPermissions
-          PolicyDocument:
-            Version: 2012-10-17
-            Statement:
-              - Effect: Allow
-                Action: sns:publish
-                Resource: '*'
-      PermissionsBoundary: !If [ UsePermissionBoundary, !Ref PermissionsBoundaryPolicy, !Ref 'AWS::NoValue' ]
 
   UserPoolDomain:
     Type: AWS::Cognito::UserPoolDomain
@@ -121,6 +97,189 @@ Resources:
       Username: !Ref CognitoAdminUser
       UserPoolId: !Ref CognitoUserPool
 
+  CognitoAppClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      GenerateSecret: true
+      AllowedOAuthFlows:
+        - code
+      AllowedOAuthFlowsUserPoolClient: true
+      AllowedOAuthScopes:
+        - email
+        - openid
+      ExplicitAuthFlows:
+        - ALLOW_REFRESH_TOKEN_AUTH
+      CallbackURLs:
+        - !Sub
+          - https://${Api}.execute-api.${AWS::Region}.${AWS::URLSuffix}/pcui/login
+          - Api: !Ref ApiGatewayRestApi
+      SupportedIdentityProviders:
+        - COGNITO
+      UserPoolId: !Ref UserPoolId
+      PreventUserExistenceErrors: ENABLED
+      RefreshTokenValidity: 7
+      AccessTokenValidity: 5
+      IdTokenValidity: 5
+      TokenValidityUnits:
+        AccessToken: "minutes"
+        IdToken: "minutes"
+
+  UserPoolClientSecret:
+    Type: Custom::UserPoolClientSecret
+    Properties:
+      ServiceToken: !GetAtt UserPoolClientSecretFunction.Arn
+      UserPoolId: !If [ UseExistingCognito, !Ref UserPoolId, !GetAtt [ Cognito, Outputs.UserPoolId ]]
+      AppClientId: !Ref CognitoAppClient
+
+  UserPoolClientSecretFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      Handler: index.handler
+      Runtime: python3.9
+      MemorySize: 128
+      Timeout: 20
+      TracingConfig:
+        Mode: Active
+      Role: !GetAtt UserPoolClientSecretRole.Arn
+      Code:
+        ZipFile: |
+          import cfnresponse
+          import boto3
+          import random
+          import string
+          import json
+
+          def generate_secret(stack_name, resource_id):
+              alnum = string.ascii_uppercase + string.digits
+              return f"{stack_name}-{resource_id}-" + "".join(random.choice(alnum) for _ in range(12))
+
+          def handler(event, context):
+              print(event)
+              print("boto version {}".format(boto3.__version__))
+
+              stack_name = event["StackId"].split("/")[1]
+              user_pool_id = event["ResourceProperties"]["UserPoolId"]
+              app_client_id = event["ResourceProperties"]["AppClientId"]
+              logical_resource_id = event["LogicalResourceId"]
+
+              cognito = boto3.client("cognito-idp")
+              secretsmanager = boto3.client("secretsmanager")
+
+              response_data = {}
+              reason = None
+              response_status = cfnresponse.SUCCESS
+              try:
+                  if event["RequestType"] == "Create":
+                      response_data["Message"] = "Resource creation successful!"
+
+                      user_pool_client = cognito.describe_user_pool_client(UserPoolId=user_pool_id, ClientId=app_client_id)
+                      client_secret = user_pool_client["UserPoolClient"]["ClientSecret"]
+                      secret_name = generate_secret(stack_name, logical_resource_id)
+
+                      secret = json.dumps({"userPoolId": user_pool_id, "clientId": app_client_id, "clientSecret": client_secret})
+
+                      resp = secretsmanager.create_secret(
+                          Name=secret_name,
+                          Description=f"Client Secret for {app_client_id} / user pool {user_pool_id}",
+                          SecretString=secret,
+                          Tags=[
+                              {"Key": "custom:cloudformation:stack-name", "Value": stack_name},
+                              {"Key": "custom:cloudformation:logical-id", "Value": logical_resource_id},
+                          ],
+                      )
+                      response_data = {"SecretArn": resp["ARN"], "SecretName": resp["Name"], "SecretVersionId": resp["VersionId"]}
+
+                  elif event["RequestType"] == "Update":
+                      user_pool_client = cognito.describe_user_pool_client(UserPoolId=user_pool_id, ClientId=app_client_id)
+                      client_secret = user_pool_client["UserPoolClient"]["ClientSecret"]
+                      secret_name = event["PhysicalResourceId"]
+                      secret = json.dumps({"userPoolId": user_pool_id, "clientId": app_client_id, "clientSecret": client_secret})
+                      resp = secretsmanager.update_secret(
+                          SecretId=secret_name,
+                          Description=f"Client Secret for {app_client_id} / user pool {user_pool_id}",
+                          SecretString=secret,
+                      )
+                      response_data = {"SecretArn": resp["ARN"], "SecretName": resp["Name"], "SecretVersionId": resp["VersionId"]}
+
+                  else:
+                      secret_name = event["PhysicalResourceId"]
+                      resp = secretsmanager.delete_secret(SecretId=secret_name, ForceDeleteWithoutRecovery=True)
+                      response_data = {"SecretArn": resp["ARN"], "SecretName": resp["Name"]}
+
+              except Exception as exception:
+                  response_status = cfnresponse.FAILED
+                  reason = "Failed {}: {}".format(event["RequestType"], exception)
+
+              cfnresponse.send(event, context, response_status, response_data, secret_name, reason)
+
+  UserPoolClientSecretRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub
+        - ${IAMRoleAndPolicyPrefix}UserPoolClientSecretRole-${StackIdSuffix}
+        - { StackIdSuffix: !Select [ 0, !Split [ '-', !Select [ 2, !Split [ '/', !Ref 'AWS::StackId' ] ] ] ] }
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action:
+              - 'sts:AssumeRole'
+      Policies:
+        - PolicyName: !Sub ${IAMRoleAndPolicyPrefix}UserPoolPermissions
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - cognito-idp:DescribeUserPoolClient
+                Resource:
+                  - !Sub
+                    - arn:${AWS::Partition}:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${UserPoolId}
+                    - { UserPoolId: !If [UseExistingCognito, !Ref UserPoolId, !GetAtt [ Cognito, Outputs.UserPoolId ]]}
+        - PolicyName: !Sub ${IAMRoleAndPolicyPrefix}SecretsManagerPermissions
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - secretsmanager:CreateSecret
+                  - secretsmanager:TagResource
+                  - secretsmanager:UpdateSecret
+                  - secretsmanager:DeleteSecret
+                Resource:
+                  - !Sub arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:${AWS::StackName}*
+      PermissionsBoundary: !If [UsePermissionBoundary, !Ref PermissionsBoundaryPolicy, !Ref 'AWS::NoValue']
+
+  CognitoPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub
+        - ${IAMRoleAndPolicyPrefix}CognitoPolicy-${StackIdSuffix}
+        - { StackIdSuffix: !Select [ 0, !Split [ '-', !Select [ 2, !Split [ '/', !Ref 'AWS::StackId']]]] }
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Action:
+            - cognito-idp:AdminRemoveUserFromGroup
+            - cognito-idp:AdminAddUserToGroup
+            - cognito-idp:AdminListGroupsForUser
+            - cognito-idp:ListUsers
+            - cognito-idp:AdminCreateUser
+            - cognito-idp:AdminDeleteUser
+            Resource: !Sub
+              - arn:${AWS::Partition}:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${UserPoolId}
+              - { UserPoolId: !If [UseExistingCognito, !Ref UserPoolId, !GetAtt [ Cognito, Outputs.UserPoolId ]]}
+            Effect: Allow
+            Sid: CognitoPolicy
+          - Action:
+            - secretsmanager:GetSecretValue
+            Resource:
+              - !GetAtt UserPoolClientSecret.SecretArn
+            Effect: Allow
+            Sid: SecretsRole
+
 Outputs:
 
   UserPoolAuthDomain:
@@ -133,6 +292,10 @@ Outputs:
     Description: Cognito UserPool Id
     Value:  !Ref CognitoUserPool
 
-  SNSRole:
-    Description: Role for SNS
-    Value: !GetAtt SNSRole.Arn
+  AppClientId:
+    Description: Cognito AppClient id
+    Value: !Ref CognitoAppClient
+
+  CognitoPolicy:
+    Description: The id of Cognito Policy which to be attached to user
+    Value: !Ref CognitoPolicy.PolicyId

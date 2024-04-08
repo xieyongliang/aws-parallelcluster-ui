@@ -40,7 +40,9 @@ CLIENT_SECRET = os.getenv("CLIENT_SECRET")
 SECRET_ID = os.getenv("SECRET_ID")
 SITE_URL = os.getenv("SITE_URL", API_BASE_URL)
 SCOPES_LIST = os.getenv("SCOPES_LIST")
-REGION = os.getenv("AWS_DEFAULT_REGION")
+REGION = os.getenv("COGNITO_REGION")
+ACCESS_KEY = os.getenv("COGNITO_ACCESS_KEY")
+SECRET_KEY = os.getenv("COGNITO_SECRET_KEY")
 TOKEN_URL = os.getenv("TOKEN_URL", f"{AUTH_PATH}/oauth2/token")
 REVOKE_REFRESH_TOKEN_URL = f"{AUTH_PATH}/oauth2/revoke"
 AUTH_URL = os.getenv("AUTH_URL", f"{AUTH_PATH}/login")
@@ -611,19 +613,34 @@ def _augment_user(cognito, user):
 
 
 def list_users():
-    cognito = boto3.client("cognito-idp")
+    cognito = boto3.client(
+        "cognito-idp", 
+        region_name=REGION,
+        aws_access_key_id=ACCESS_KEY,
+        aws_secret_access_key=SECRET_KEY
+    )
     users = cognito.list_users(UserPoolId=USER_POOL_ID)["Users"]
     return {"users": [_augment_user(cognito, user) for user in users]}
 
 
 def delete_user():
-    cognito = boto3.client("cognito-idp")
+    cognito = boto3.client(
+        "cognito-idp", 
+        region_name=REGION,
+        aws_access_key_id=ACCESS_KEY,
+        aws_secret_access_key=SECRET_KEY
+    )
     username = request.args.get("username")
     cognito.admin_delete_user(UserPoolId=USER_POOL_ID, Username=username)
     return {"Username": username}
 
 def create_user():
-    cognito = boto3.client("cognito-idp")
+    cognito = boto3.client(
+        "cognito-idp", 
+        region_name=REGION,
+        aws_access_key_id=ACCESS_KEY,
+        aws_secret_access_key=SECRET_KEY
+    )
     username = request.json.get("Username")
     phone_number = request.json.get("Phonenumber")
     user_attributes = [{"Name": "email", "Value": username}, {"Name": "email_verified", "Value": "True"}]
