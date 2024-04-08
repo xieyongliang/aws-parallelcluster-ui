@@ -128,7 +128,7 @@ Resources:
     Type: Custom::UserPoolClientSecret
     Properties:
       ServiceToken: !GetAtt UserPoolClientSecretFunction.Arn
-      UserPoolId: !If [ UseExistingCognito, !Ref UserPoolId, !GetAtt [ Cognito, Outputs.UserPoolId ]]
+      UserPoolId: !Ref CognitoUserPool
       AppClientId: !Ref CognitoAppClient
 
   UserPoolClientSecretFunction:
@@ -237,7 +237,7 @@ Resources:
                 Resource:
                   - !Sub
                     - arn:${AWS::Partition}:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${UserPoolId}
-                    - { UserPoolId: !If [UseExistingCognito, !Ref UserPoolId, !GetAtt [ Cognito, Outputs.UserPoolId ]]}
+                    - { UserPoolId: !Ref CognitoUserPool}
         - PolicyName: !Sub ${IAMRoleAndPolicyPrefix}SecretsManagerPermissions
           PolicyDocument:
             Version: 2012-10-17
@@ -270,7 +270,7 @@ Resources:
             - cognito-idp:AdminDeleteUser
             Resource: !Sub
               - arn:${AWS::Partition}:cognito-idp:${AWS::Region}:${AWS::AccountId}:userpool/${UserPoolId}
-              - { UserPoolId: !If [UseExistingCognito, !Ref UserPoolId, !GetAtt [ Cognito, Outputs.UserPoolId ]]}
+              - { UserPoolId: !Ref CognitoUserPool}
             Effect: Allow
             Sid: CognitoPolicy
           - Action:
