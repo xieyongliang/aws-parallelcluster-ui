@@ -1,4 +1,16 @@
 Parameters:
+  ApiGatewayRestApi:
+    Description: 'Api gateway'
+    Type: String
+  RootResourceId:
+    Description: 'Root resource Id of Api gateway'
+    Type: String
+  ApiDefinitionS3Uri:
+    Description: 'S3 Uri of ApiDefinition'
+    Type: String
+  ParallelClusterApiTemplateURL:
+    Description: 'HTTP URL of ParallelClusterApi'
+    Type: String
   PublicEcrImageUri:
     Description: When specified, the URI of the Docker image for the Lambda of the ParallelCluster UI container
     Type: String
@@ -70,6 +82,10 @@ Parameters:
     Description: 'Prefix applied to the name of every IAM role and policy (max length: 10). [ParallelCluster >= 3.8.0]'
     Default: ''
     MaxLength: 10
+  UserPoolClientSecretName:
+    Description: 'Name of UserPoolSecret'
+    Type: String
+
 Metadata:
   AWS::CloudFormation::Interface:
     ParameterGroups:
@@ -154,7 +170,7 @@ Resources:
       Parameters:
         PermissionsBoundaryPolicy: !If [ UsePermissionBoundaryPCAPI, !Ref PermissionsBoundaryPolicyPCAPI, !Ref AWS::NoValue ]
         IAMRoleAndPolicyPrefix: !If [ UseIAMRoleAndPolicyPrefix, !Ref IAMRoleAndPolicyPrefix, !Ref AWS::NoValue ]
-        ApiDefinitionS3Uri: !Sub s3://${AWS::Region}-aws-parallelcluster/parallelcluster/${Version}/api/ParallelCluster.openapi.yaml
+        ApiDefinitionS3Uri: !Ref ApiDefinitionS3Uri
         CreateApiUserRole: False
         EnableIamAdminAccess: True
         VpcEndpointId: !If [ IsPrivate, !Ref VpcEndpointId, !Ref AWS::NoValue ]
@@ -172,7 +188,7 @@ Resources:
             - NonDefaultVpc
             - !Ref ImageBuilderVpcId
             - !Ref AWS::NoValue
-      TemplateURL: !Sub https://${AWS::Region}-aws-parallelcluster.s3.${AWS::Region}.amazonaws.com/parallelcluster/${Version}/api/parallelcluster-api.yaml
+      TemplateURL: !Ref ParallelClusterApiTemplateURL
       TimeoutInMinutes: 30
 
   ParallelClusterUIFun:
@@ -201,7 +217,7 @@ Resources:
            - https://${Api}.execute-api.${AWS::Region}.${AWS::URLSuffix}/pcui
            - Api: !Ref ApiGatewayRestApi
           AUTH_PATH: !Ref UserPoolAuthDomain
-          SECRET_ID: !GetAtt UserPoolClientSecret.SecretName
+          SECRET_ID: !Ref UserPoolClientSecretName
           AUDIENCE: !Ref CognitoAppClient
           COGNITO_REGION: !Ref CognitoRegion
           COGNITO_ACCESS_KEY: !Ref CognitoAccessKey
@@ -218,47 +234,11 @@ Resources:
               - '-'
               - [!Select [2, !Split ['/', !Ref EcrImage]], !Select [3, !Split ['/', !Ref EcrImage]]]
 
-  ApiGatewayRestApi:
-    Type: AWS::ApiGateway::RestApi
-    Properties:
-      Name: ParallelClusterUI
-      Description: ParallelClusterUI Lambda Proxy
-      Policy:
-        Fn::If:
-          - IsPrivate
-          - Version: "2012-10-17"
-            Statement:
-              - Effect: "Deny"
-                Principal: "*"
-                Action: "execute-api:Invoke"
-                Resource: "execute-api:/*"
-                Condition:
-                  StringNotEquals:
-                    aws:sourceVpce: !Ref VpcEndpointId
-              - Effect: "Allow"
-                Principal: "*"
-                Action: "execute-api:Invoke"
-                Resource: "execute-api:/*"
-          - Version: "2012-10-17"
-            Statement:
-            - Effect: "Allow"
-              Principal: "*"
-              Action: "execute-api:Invoke"
-              Resource: "execute-api:/*"
-      EndpointConfiguration:
-        Types:
-          - !If [ IsPrivate, PRIVATE, REGIONAL ]
-        VpcEndpointIds:
-          - !If [ IsPrivate, !Ref VpcEndpointId, !Ref AWS::NoValue ]
-      Tags:
-        - Key: 'parallelcluster:ui:version'
-          Value: !FindInMap [ParallelClusterUI, Constants, Version]
-
   ApiGatewayProxyResource:
     Type: AWS::ApiGateway::Resource
     Properties:
       RestApiId: !Ref ApiGatewayRestApi
-      ParentId: !GetAtt ApiGatewayRestApi.RootResourceId
+      ParentId: !Ref RootResourceId
       PathPart: '{proxy+}'
 
   ApiGatewayMethod:
@@ -279,7 +259,7 @@ Resources:
     Type: AWS::ApiGateway::Method
     Properties:
       RestApiId: !Ref ApiGatewayRestApi
-      ResourceId: !GetAtt ApiGatewayRestApi.RootResourceId
+      ResourceId: !Ref RootResourceId
       HttpMethod: ANY
       AuthorizationType: NONE
       Integration:
@@ -747,7 +727,7 @@ Resources:
               - ce:UpdateCostAllocationTagsStatus
               - ce:GetCostAndUsage
               Resource:
-                - !Sub 'arn:aws:ce:us-east-1:${AWS::AccountId}:/*' # CE only available in us-east-1, aws partition, see https://docs.aws.amazon.com/general/latest/gr/billing.html
+                - !Sub arn:${AWS::Partition}:ce::${AWS::AccountId}:/* 
               Effect: Allow
               Sid: CostMonitoringPolicy
           - Action:
@@ -811,9 +791,4 @@ Outputs:
     Value: !Sub
       - https://${Api}.execute-api.${AWS::Region}.${AWS::URLSuffix}/pcui
       - Api: !Ref ApiGatewayRestApi
-  UserPoolClientSecretArn:
-    Description: The app client secret ARN for ParallelCluster UI.
-    Value: !GetAtt UserPoolClientSecret.SecretArn
-  UserPoolClientSecretName:
-    Description: The app client secret name for ParallelCluster UI.
-    Value: !GetAtt UserPoolClientSecret.SecretName
+

@@ -17,7 +17,10 @@ Parameters:
     Description: 'Prefix applied to the name of every IAM role and policy (max length: 10)'
     Default: ''
     MaxLength: 10
-  
+  CognitoCallbackURL:
+    Type: String
+    Description: 'Cognito login Callback URL'
+
 Conditions:
   GovCloud: !Equals [!Ref AWS::Region, 'us-gov-west-1']
   UsePermissionBoundary: !Not [ !Equals [ !Ref PermissionsBoundaryPolicy, '' ] ]
@@ -110,12 +113,10 @@ Resources:
       ExplicitAuthFlows:
         - ALLOW_REFRESH_TOKEN_AUTH
       CallbackURLs:
-        - !Sub
-          - https://${Api}.execute-api.${AWS::Region}.${AWS::URLSuffix}/pcui/login
-          - Api: !Ref ApiGatewayRestApi
+        - !Ref CognitoCallbackURL
       SupportedIdentityProviders:
         - COGNITO
-      UserPoolId: !Ref UserPoolId
+      UserPoolId: !Ref CognitoUserPool
       PreventUserExistenceErrors: ENABLED
       RefreshTokenValidity: 7
       AccessTokenValidity: 5
@@ -298,4 +299,8 @@ Outputs:
 
   CognitoPolicy:
     Description: The id of Cognito Policy which to be attached to user
-    Value: !Ref CognitoPolicy.PolicyId
+    Value: !GetAtt CognitoPolicy.PolicyId
+  
+  UserPoolClientSecretName:
+    Description: The app client secret name for ParallelCluster UI.
+    Value: !GetAtt UserPoolClientSecret.SecretName
