@@ -52,7 +52,12 @@ USER_ROLES_CLAIM = os.getenv("USER_ROLES_CLAIM", "cognito:groups")
 
 try:
     if (not USER_POOL_ID or USER_POOL_ID == "") and SECRET_ID:
-        secrets = boto3.client("secretsmanager")
+        secrets = boto3.client(
+            "secretsmanager",
+            region_name=REGION,
+            aws_access_key_id=ACCESS_KEY,
+            aws_secret_access_key=SECRET_KEY
+        )
         secret = json.loads(secrets.get_secret_value(SecretId=SECRET_ID)["SecretString"])
         USER_POOL_ID = secret.get("userPoolId")
         CLIENT_ID = secret.get("clientId")
