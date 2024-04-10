@@ -29,6 +29,7 @@ from api.utils import disable_auth
 from api.validation import validated
 from api.validation.schemas import PCProxyArgs, PCProxyBody
 
+print(os.environ)
 USER_POOL_ID = os.getenv("USER_POOL_ID")
 AUTH_PATH = os.getenv("AUTH_PATH")
 API_BASE_URL = os.getenv("API_BASE_URL")
