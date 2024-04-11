@@ -145,14 +145,14 @@ function useState(path: any) {
 }
 
 function ssmPolicy(region: any) {
-  const partition = region && region.startsWith('us-gov') ? 'aws-us-gov' : 'aws'
+  const partition = region && region.startsWith('us-gov') ? 'aws-us-gov' : region && region.startsWith('cn') ? 'aws-cn' : 'aws'
   return `arn:${partition}:iam::aws:policy/AmazonSSMManagedInstanceCore`
 }
 
 function consoleDomain(region: any) {
   return region && region.startsWith('us-gov')
     ? 'https://console.amazonaws-us-gov.com'
-    : `https://${region}.console.aws.amazon.com`
+    : region && region.startsWith('cn') ? `https://${region}.console.amazonaws.cn` : `https://${region}.console.aws.amazon.com`
 }
 
 export {
