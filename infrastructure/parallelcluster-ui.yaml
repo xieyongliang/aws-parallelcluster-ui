@@ -156,7 +156,6 @@ Conditions:
   UsePermissionBoundary: !Not [!Equals [!Ref PermissionsBoundaryPolicy, '']]
   UsePermissionBoundaryPCAPI: !Not [!Equals [!Ref PermissionsBoundaryPolicyPCAPI, '']]
   UseIAMRoleAndPolicyPrefix: !Not [!Equals [!Ref IAMRoleAndPolicyPrefix, '']]
-  InCNCloud: !Equals ["aws-cn", !Ref "AWS::Partition"]
 
 Mappings:
   ParallelClusterUI:
@@ -735,7 +734,7 @@ Resources:
               - pricing:GetProducts
             Resource:
               - '*'
-            Condition: !Not InCNCloud
+            Condition: !Not [!Equals ["aws-cn", !Ref "AWS::Partition"]]
             Effect: Allow
             Sid: PricingPolicy
 
