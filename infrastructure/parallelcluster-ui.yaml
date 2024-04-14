@@ -152,10 +152,11 @@ Conditions:
       - !Equals ['3', !Select [ 1, !Split ['.', !Ref Version] ] ]
       - !Equals ['4', !Select [ 1, !Split ['.', !Ref Version] ] ]
       - !Equals ['5', !Select [ 1, !Split ['.', !Ref Version] ] ]
-  InGovCloud: !Equals ['us-gov-west-1', !Ref "AWS::Region"]
+  InGovCloud: !Equals ['aws-us-gov', !Ref "AWS::Partition"]
   UsePermissionBoundary: !Not [!Equals [!Ref PermissionsBoundaryPolicy, '']]
   UsePermissionBoundaryPCAPI: !Not [!Equals [!Ref PermissionsBoundaryPolicyPCAPI, '']]
   UseIAMRoleAndPolicyPrefix: !Not [!Equals [!Ref IAMRoleAndPolicyPrefix, '']]
+  InCNCloud: !Equals ["aws-cn", !Ref "AWS::Partition"]
 
 Mappings:
   ParallelClusterUI:
@@ -197,7 +198,7 @@ Resources:
       Role: !GetAtt ParallelClusterUIUserRole.Arn
       PackageType: Image
       MemorySize: 512
-      Timeout: 30
+      Timeout: 900
       Tags:
         - Key: 'parallelcluster:ui:version'
           Value: !FindInMap [ ParallelClusterUI, Constants, Version ]
@@ -727,13 +728,14 @@ Resources:
               - ce:UpdateCostAllocationTagsStatus
               - ce:GetCostAndUsage
               Resource:
-                - !Sub arn:${AWS::Partition}:ce::${AWS::AccountId}:/* 
+                - '*'
               Effect: Allow
               Sid: CostMonitoringPolicy
           - Action:
               - pricing:GetProducts
             Resource:
               - '*'
+            Condition: !Not InCNCloud
             Effect: Allow
             Sid: PricingPolicy
 
