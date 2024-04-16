@@ -44,6 +44,10 @@ export function regions(selected: string) {
       ['Europe (Paris)', 'eu-west-3'],
       ['Europe (Stockholm)', 'eu-north-1'],
     ],
+    [
+      ['China (Beijing)', 'cn-north-1'],
+      ['China (Ningxia)', 'cn-northwest-1'],
+    ],
     [['South America (São Paulo)', 'sa-east-1']],
   ]
 
@@ -68,9 +72,27 @@ export function regions(selected: string) {
 
 const regionsToDropdownItems = (
   regionGroups: string[][][],
-  selected: string,
+  selectedRegion: string,
+  defaultRegion: string,
 ) => {
-  return regionGroups.map((regions, i) => {
+  let validRegionGroups : string[][][] = []
+  regionGroups.forEach(regionGroup => {
+    let validRegionGroup : string[][] = []
+    regionGroup.forEach(regions => {
+      if (defaultRegion.startsWith('cn')) {
+        if (regions[1].startsWith('cn'))
+        validRegionGroup.push(regions)
+      }
+      else {
+        if (!regions[1].startsWith('cn'))
+        validRegionGroup.push(regions)
+      }
+    })
+    if (validRegionGroup.length > 0)
+      validRegionGroups.push(validRegionGroup)
+  })
+
+  return validRegionGroups.map((regions, i) => {
     return {
       type: 'menu-dropdown',
       className: 'region-group',
@@ -78,7 +100,7 @@ const regionsToDropdownItems = (
       text: '',
       items: regions.map(([regionName, region]) => {
         let className = 'region'
-        if (selected === region) className += ' region-selected'
+        if (selectedRegion === region) className += ' region-selected'
 
         return {
           type: 'button',
@@ -185,7 +207,7 @@ export default function Topbar() {
                 </span>
               ),
               onItemClick: selectRegion,
-              items: regionsToDropdownItems(displayedRegions, selectedRegion),
+              items: regionsToDropdownItems(displayedRegions, selectedRegion, defaultRegion),
             },
           ],
         ]}
