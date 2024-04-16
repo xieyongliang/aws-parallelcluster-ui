@@ -206,6 +206,14 @@ function RegionSelect() {
     'us-west-2',
   ]
 
+  let validRegions : string[] = []
+  supportedRegions.forEach((supportedRegion) => {
+    if (region.startsWith('cn') && supportedRegion.startsWith('cn'))
+      validRegions.push(supportedRegion)
+    if (!region.startsWith('cn') && !supportedRegion.startsWith('cn'))
+      validRegions.push(supportedRegion)
+  })
+
   return (
     <>
       <FormField
@@ -217,13 +225,13 @@ function RegionSelect() {
           disabled={editing}
           selectedOption={itemToOption(
             // @ts-expect-error TS(2345) FIXME: Argument of type 'string[] | undefined' is not ass... Remove this comment to see the full error message
-            findFirst(supportedRegions, (r: string) => {
+            findFirst(validRegions, (r: string) => {
               return r === region
             }),
           )}
           onChange={handleChange}
           // @ts-expect-error TS(2322) FIXME: Type '({ label: Element; value: string; } | undefi... Remove this comment to see the full error message
-          options={supportedRegions.map(itemToOption)}
+          options={validRegions.map(itemToOption)}
           placeholder={t('wizard.cluster.region.placeholder')}
           selectedAriaLabel={t('wizard.cluster.region.selectedAriaLabel')}
         />
