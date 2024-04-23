@@ -225,14 +225,14 @@ function DeleteCluster(clusterName: any, callback?: Callback) {
 
 async function ListClusters(): Promise<ClusterInfoSummary[]> {
   const region = getState(['app', 'selectedRegion'])
-  var url = '/pcui/api?path=/v3/clusters'
+  var url = 'api?path=/v3/clusters'
   url += region ? `&region=${region}` : ''
   try {
     // Using axios.get instead of request to pass in params, which can handle the special characters in the token
-    var response = await axios.get(url)
+    var response = await request('get', url)
     var clusters = response.data.clusters
     while ('nextToken' in response.data) {
-      response = await axios.get(url, {
+      response = await request('get', url, {
         params: {
           nextToken: encodeURIComponent(response.data.nextToken),
         },
