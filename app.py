@@ -36,14 +36,15 @@ from api.PclusterApiHandler import (
     queue_status,
     sacct,
     scontrol_job,
-    CLIENT_ID, CLIENT_SECRET, USER_POOL_ID, pc
+    CLIENT_ID, CLIENT_SECRET, USER_POOL_ID, pc,
+    AUTH_TYPE
 )
 from api.costmonitoring import costs
 from api.logging import parse_log_entry, push_log_entry
 from api.pcm_globals import logger
 from api.security.csrf import CSRF
 from api.security.csrf.csrf import csrf_needed
-from api.security.fingerprint import CognitoFingerprintGenerator
+from api.security.fingerprint import CognitoFingerprintGenerator, AzureADFingerprintGenerator
 from api.validation import validated, EC2Action
 from api.validation.schemas import CreateUser, DeleteUser, GetClusterConfig, GetCustomImageConfig, GetAwsConfig, GetInstanceTypes,\
      Login, PushLog, PriceEstimate, GetDcvSession, QueueStatus, ScontrolJob, CancelJob, Sacct
@@ -70,9 +71,11 @@ class PClusterJSONEncoder(DefaultJSONProvider):
 def run():
     app = utils.build_flask_app(__name__)
     app.config["APPLICATION_ROOT"] = '/pcui'
+    app.config['MAX_COOKIE_SIZE'] = 65536
     app.json = PClusterJSONEncoder(app)
     app.url_map.converters["regex"] = RegexConverter
-    CSRF(app, CognitoFingerprintGenerator(CLIENT_ID, CLIENT_SECRET, USER_POOL_ID))
+    fingerprint_generator = AzureADFingerprintGenerator(CLIENT_ID, CLIENT_SECRET) if AUTH_TYPE == 'azuread' else CognitoFingerprintGenerator(CLIENT_ID, CLIENT_SECRET, USER_POOL_ID)
+    CSRF(app, fingerprint_generator)
 
     @app.errorhandler(401)
     def custom_401(_error):
@@ -190,7 +193,7 @@ def run():
         return scontrol_job()
 
     @app.route("/login")
-    @validated(params=Login)
+    #@validated(params=Login)
     def login_():
         return login()
 

@@ -13,13 +13,13 @@ import {AppConfig} from '../app-config/types'
 import {generateRandomId} from '../util'
 
 export const handleNotAuthorizedErrors =
-  ({authUrl, clientId, scopes, redirectUri}: AppConfig) =>
+  ({authType, authUrl, clientId, scopes, redirectUri}: AppConfig) =>
   async (requestPromise: Promise<any>) => {
     return requestPromise.catch(error => {
       switch ((error as AxiosError).response?.status) {
         case 401:
         case 403:
-          redirectToAuthServer(authUrl, clientId, scopes, redirectUri)
+          redirectToAuthServer(authType, authUrl, clientId, scopes, redirectUri)
           return Promise.reject(error)
       }
       return Promise.reject(error)
@@ -27,13 +27,19 @@ export const handleNotAuthorizedErrors =
   }
 
 function redirectToAuthServer(
+  authType: string,
   authUrl: string,
   clientId: string,
   scopes: string,
   redirectUri: string,
 ) {
-  const url = `${authUrl}?response_type=code&client_id=${clientId}&scope=${encodeURIComponent(
+  var url = `${authUrl}?response_type=code&client_id=${clientId}&scope=${encodeURIComponent(
     scopes,
-  )}&redirect_uri=${redirectUri}&state=${generateRandomId()}`
+  )}&redirect_uri=${redirectUri}`
+  if (authType == 'cognito') {
+    url += `&state=${generateRandomId()}`
+  } else if (authType == 'azuread') {
+    url += '&response_mode=query'
+  }
   window.location.replace(url)
 }

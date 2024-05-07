@@ -9,6 +9,7 @@
 // limitations under the License.
 
 export interface AppConfig {
+  authType: string
   authUrl: string
   clientId: string
   scopes: string

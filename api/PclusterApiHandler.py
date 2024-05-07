@@ -30,6 +30,7 @@ from api.validation import validated
 from api.validation.schemas import PCProxyArgs, PCProxyBody
 
 print(os.environ)
+AUTH_TYPE = os.getenv("AUTH_TYPE", "azuread")
 USER_POOL_ID = os.getenv("USER_POOL_ID")
 AUTH_PATH = os.getenv("AUTH_PATH")
 API_BASE_URL = os.getenv("API_BASE_URL")
@@ -45,14 +46,15 @@ REGION = os.getenv("COGNITO_REGION")
 ACCESS_KEY = os.getenv("COGNITO_ACCESS_KEY")
 SECRET_KEY = os.getenv("COGNITO_SECRET_KEY")
 TOKEN_URL = os.getenv("TOKEN_URL", f"{AUTH_PATH}/oauth2/token")
-REVOKE_REFRESH_TOKEN_URL = f"{AUTH_PATH}/oauth2/revoke"
+REVOKE_REFRESH_TOKEN_URL = os.getenv("REVOKE_REFRESH_TOKEN_URL", f"{AUTH_PATH}/oauth2/revoke")
 AUTH_URL = os.getenv("AUTH_URL", f"{AUTH_PATH}/login")
 JWKS_URL = os.getenv("JWKS_URL")
 AUDIENCE = os.getenv("AUDIENCE")
 USER_ROLES_CLAIM = os.getenv("USER_ROLES_CLAIM", "cognito:groups")
+USER_URL = os.getenv("USER_URL")
 
 try:
-    if (not USER_POOL_ID or USER_POOL_ID == "") and SECRET_ID:
+    if AUTH_TYPE == "cognito" and (not USER_POOL_ID or USER_POOL_ID == "") and SECRET_ID:
         secrets = boto3.client(
             "secretsmanager",
             region_name=REGION,
@@ -66,9 +68,11 @@ try:
 except Exception:
     pass
 
-if not JWKS_URL:
+if AUTH_TYPE == "cognito" and not JWKS_URL:
     JWKS_URL = os.getenv("JWKS_URL",
                          f"https://cognito-idp.{REGION}.amazonaws.com/{USER_POOL_ID}/" ".well-known/jwks.json")
+elif not JWKS_URL:
+    JWKS_URL = os.getenv("JWKS_URL")
 
 def jwt_decode(token, audience=None, access_token=None):
     return jwt.decode(token, requests.get(JWKS_URL).json(), audience=audience, access_token=access_token)
@@ -128,23 +132,38 @@ def sigv4_request(method, host, path, params={}, headers={}, body=None):
     return req_call(boto_request.url, data=body_data, headers=boto_request.headers, timeout=30)
 
 def refresh_tokens(refresh_token):
-    auth = requests.auth.HTTPBasicAuth(CLIENT_ID, CLIENT_SECRET)
+    if AUTH_TYPE == "cognito":
+        auth = requests.auth.HTTPBasicAuth(CLIENT_ID, CLIENT_SECRET)
 
-    resp = requests.post(
-        TOKEN_URL,
-        data={"grant_type": 'refresh_token', "refresh_token": refresh_token, "client_id": CLIENT_ID},
-        auth=auth,
-        headers={"Content-Type": "application/x-www-form-urlencoded"},
-    )
+        resp = requests.post(
+            TOKEN_URL,
+            data={"grant_type": 'refresh_token', "refresh_token": refresh_token, "client_id": CLIENT_ID},
+            auth=auth,
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+    elif AUTH_TYPE == "azuread":
+        resp = requests.post(
+            TOKEN_URL,
+            data={"grant_type": 'refresh_token', "refresh_token": refresh_token, "client_id": CLIENT_ID, "client_secret": CLIENT_SECRET},
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+    else:
+        raise Exception("Unsupported authentication type")
 
     if resp.status_code != 200:
         raise RefreshTokenError(resp.json().get('error'))
 
     values = resp.json()
     access_token = values.get("access_token")
-    id_token = values.get("id_token")
+    if AUTH_TYPE == "cognito":
+        id_token = values.get("id_token")
 
-    return {'accessToken': access_token, 'idToken': id_token}
+    if AUTH_TYPE == "cognito":
+        return {'accessToken': access_token, 'idToken': id_token}
+    elif AUTH_TYPE == "azuread":
+        return {'accessToken': access_token}
+    else:
+        raise Exception('Unsupported authentication type')
 
 def authenticate(groups):
     if disable_auth():
@@ -154,26 +173,31 @@ def authenticate(groups):
     if not access_token:
         return abort(401)
 
-    try:
-        decoded = jwt_decode(access_token)
-    except jwt.ExpiredSignatureError:
-        refresh_token = request.cookies.get('refreshToken', None)
-        if refresh_token is None:
+    if AUTH_TYPE == "cognito":
+        try:
+            decoded = jwt_decode(access_token)
+        except jwt.ExpiredSignatureError:
+            refresh_token = request.cookies.get('refreshToken', None)
+            if refresh_token is None:
+                return abort(401)
+
+            tokens = refresh_tokens(refresh_token)
+            decoded = jwt_decode(tokens['accessToken'])
+            set_auth_cookies_in_context(tokens)
+        except Exception as e:
             return abort(401)
 
-        tokens = refresh_tokens(refresh_token)
-        decoded = jwt_decode(tokens['accessToken'])
-        set_auth_cookies_in_context(tokens)
-    except Exception as e:
-        return abort(401)
+        if (not groups):
+            return abort(403)
 
-    if (not groups):
-        return abort(403)
-        
-    jwt_roles = set(decoded.get(USER_ROLES_CLAIM, []))
-    groups_granted = groups.intersection(jwt_roles)
-    if len(groups_granted) == 0:
-        return abort(403)
+        jwt_roles = set(decoded.get(USER_ROLES_CLAIM, []))
+        groups_granted = groups.intersection(jwt_roles)
+        if len(groups_granted) == 0:
+            return abort(403)
+    elif AUTH_TYPE == "azuread":
+        return
+    else:
+        raise("Unsupported authentication type")
 
 def authenticated(groups={"admin"}):
     def _authenticated(func):
@@ -187,8 +211,10 @@ def authenticated(groups={"admin"}):
     return _authenticated
 
 def get_scopes_list():
-  if not SCOPES_LIST:
+  if AUTH_TYPE == "cognito" and not SCOPES_LIST:
     return "openid"
+  elif AUTH_TYPE == "azuread" and not SCOPES_LIST:
+    return "user.read mail.read offline_access"
   elif "openid" not in SCOPES_LIST:
     return SCOPES_LIST + " openid"
   return SCOPES_LIST
@@ -204,6 +230,7 @@ def get_version():
 
 def get_app_config():
   return {
+    "auth_type": AUTH_TYPE,
     "auth_url": AUTH_URL,
     "client_id": CLIENT_ID,
     "oidc_provider": OIDC_PROVIDER,
@@ -564,7 +591,7 @@ def get_instance_types():
     return {"instance_types": sorted(instance_types, key=lambda x: x["InstanceType"])}
 
 
-def _get_identity_from_token(decoded, claims):
+def _get_cognito_identity_from_token(decoded, claims):
     identity = {"attributes": {}}
 
     if USER_ROLES_CLAIM in decoded:
@@ -578,32 +605,59 @@ def _get_identity_from_token(decoded, claims):
     
     return identity
 
+def _get_azuread_identity_from_token(access_token):
+    identity = {"attributes": {}}
+
+    user_resp = requests.get(
+        USER_URL,
+        headers={"Authorization": f"Bearer {access_token}"},
+    )
+
+    if user_resp.status_code != 200:
+        abort(user_resp.status_code)
+
+    identity["username"] = user_resp.json()["displayName"]
+    identity["attributes"]["email"] = user_resp.json()["mail"]
+
+    return identity
+
+
 def get_identity():
     if disable_auth():
         return {"user_roles": ["user", "admin"], "username": "username", "attributes": {"email": "user@domain.com"}}
 
     access_token = request.cookies.get("accessToken")
-    id_token = request.cookies.get("idToken", None)
+    if AUTH_TYPE == "cognito":
+        id_token = request.cookies.get("idToken", None)
 
-    claims = ["email"]
-    try:
-        decoded_access = jwt_decode(access_token)
-    except jwt.ExpiredSignatureError:
-        access_token = auth_cookies.get('accessToken')
-        id_token = auth_cookies.get('idToken')
-        decoded_access = jwt_decode(access_token)
+        claims = ["email"]
+        try:
+            decoded_access = jwt_decode(access_token)
+        except jwt.ExpiredSignatureError:
+            access_token = auth_cookies.get('accessToken')
+            if AUTH_TYPE == 'cognito':
+                id_token = auth_cookies.get('idToken')
+            decoded_access = jwt_decode(access_token)
 
-    identity = _get_identity_from_token(decoded=decoded_access, claims=claims)
+        identity = _get_cognito_identity_from_token(decoded=decoded_access, claims=claims)
 
-    if id_token:
-        decoded_id = jwt_decode(id_token, audience=AUDIENCE, access_token=access_token)
-        identity_from_id_token = _get_identity_from_token(decoded=decoded_id, claims=claims)
-        identity.update(identity_from_id_token)
+        if not id_token:
+            decoded_id = jwt_decode(id_token, audience=AUDIENCE, access_token=access_token)
+            identity_from_id_token = _get_cognito_identity_from_token(decoded=decoded_id, claims=claims)
+            identity.update(identity_from_id_token)
 
-    if "username" not in identity:
-        raise Exception('No username present in access or id token.')
-    if "user_roles" not in identity:
-        raise Exception('No user_roles present in access or id token.')
+        if "username" not in identity:
+            raise Exception('No username present in access or id token.')
+        if "user_roles" not in identity:
+            raise Exception('No user_roles present in access or id token.')
+    elif AUTH_TYPE == "azuread":
+        identity = _get_azuread_identity_from_token(access_token)
+        identity["user_roles"]  = ["user", "admin"]
+
+        if "username" not in identity:
+            raise Exception('No username present in access token.')
+    else:
+        raise Exception('Unsupported authentication type')
 
     return identity
 
@@ -619,15 +673,28 @@ def _augment_user(cognito, user):
 
 
 def list_users():
-    cognito = boto3.client(
-        "cognito-idp", 
-        region_name=REGION,
-        aws_access_key_id=ACCESS_KEY,
-        aws_secret_access_key=SECRET_KEY
-    )
-    users = cognito.list_users(UserPoolId=USER_POOL_ID)["Users"]
-    return {"users": [_augment_user(cognito, user) for user in users]}
+    if AUTH_TYPE == "cognito":
+        cognito = boto3.client(
+            "cognito-idp",
+            region_name=REGION,
+            aws_access_key_id=ACCESS_KEY,
+            aws_secret_access_key=SECRET_KEY
+        )
+        users = cognito.list_users(UserPoolId=USER_POOL_ID)["Users"]
+        return {"users": [_augment_user(cognito, user) for user in users]}
+    elif AUTH_TYPE == "azuread":
+        access_token = request.cookies.get("accessToken")
+        user_resp = requests.get(
+            USER_URL,
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
 
+        if user_resp.status_code != 200:
+            abort(user_resp.status_code)
+
+        return {"users": []}
+    else:
+        raise('Unsupported authentication type')
 
 def delete_user():
     cognito = boto3.client(
@@ -662,40 +729,52 @@ def login():
     code = request.args.get("code")
 
     # Convert the authorization code into a jwt
-    auth = requests.auth.HTTPBasicAuth(CLIENT_ID, CLIENT_SECRET)
-    grant_type = "authorization_code"
+    if AUTH_TYPE == "cognito":
+        auth = requests.auth.HTTPBasicAuth(CLIENT_ID, CLIENT_SECRET)
 
-    url = TOKEN_URL
-    code_resp = requests.post(
-        url,
-        data={"grant_type": grant_type, "code": code, "client_id": CLIENT_ID, "redirect_uri": get_redirect_uri()},
-        auth=auth,
-        headers={"Content-Type": "application/x-www-form-urlencoded"},
-    )
+        code_resp = requests.post(
+            TOKEN_URL,
+            data={"grant_type": "authorization_code", "code": code, "client_id": CLIENT_ID, "redirect_uri": get_redirect_uri()},
+            auth=auth,
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+    elif AUTH_TYPE == "azuread":
+        code_resp = requests.post(
+            TOKEN_URL,
+            data={"grant_type": "authorization_code", "code": code, "client_id": CLIENT_ID, "client_secret": CLIENT_SECRET, "redirect_uri": get_redirect_uri(), "scope": get_scopes_list()},
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+    else:
+        raise Exception('Unsupported authentication type')
 
     access_token = code_resp.json().get("access_token")
     if not access_token:
         return abort(401)
 
-    id_token = code_resp.json().get("id_token")
+    if AUTH_TYPE == "cognito":
+        id_token = code_resp.json().get("id_token")
     refresh_token = code_resp.json().get("refresh_token", None)
 
     resp = redirect("/pcui/index.html", code=302)
     resp.set_cookie("accessToken", access_token, httponly=True, secure=True, samesite="Lax")
-    resp.set_cookie("idToken", id_token, httponly=True, secure=True, samesite="Lax")
+    if AUTH_TYPE == "cognito":
+        resp.set_cookie("idToken", id_token, httponly=True, secure=True, samesite="Lax")
     if refresh_token is not None:
         resp.set_cookie("refreshToken", refresh_token, httponly=True, secure=True, samesite="Lax")
     return resp
 
-
 def logout():
+    access_token = request.cookies.get('accessToken', None)
     refresh_token = request.cookies.get('refreshToken', None)
-    if refresh_token is not None:
+    if AUTH_TYPE == "cognito" and  refresh_token is not None:
         revoke_cognito_refresh_token(refresh_token)
+    if AUTH_TYPE == "azuread" and access_token is not None:
+        revoke_azuread_refresh_token(access_token)
 
-    resp = __cognito_logout_redirect(get_app_config())
+    resp = _logout_redirect(get_app_config())
     resp.set_cookie("accessToken", "", expires=0)
-    resp.set_cookie("idToken", "", expires=0)
+    if AUTH_TYPE == "cognito":
+        resp.set_cookie("idToken", "", expires=0)
     resp.set_cookie("refreshToken", "", expires=0)
     resp.set_cookie(CSRF_COOKIE_NAME, "", expires=0)
     return resp
@@ -712,15 +791,29 @@ def revoke_cognito_refresh_token(refresh_token):
         logger.warning('Unable to revoke cognito refresh token')
 
 
+def revoke_azuread_refresh_token(access_token):
+    revoke_resp = requests.post(
+        REVOKE_REFRESH_TOKEN_URL,
+        headers={"Authorization": f"Bearer {access_token}"})
 
-def __cognito_logout_redirect(config):
-    auth_url = AUTH_PATH
+    if revoke_resp.status_code != 200:
+        logger.warning('Unable to revoke azure refresh token')
+
+
+def _logout_redirect(config):
     client_id = config['client_id']
     redirect_uri = config['redirect_uri']
     scope_list = config['scopes']
 
-    target_url = f'{auth_url}/logout?client_id={client_id}&redirect_uri={redirect_uri}&response_type=code&scope={scope_list}'
-    return redirect(target_url, code=302)
+    if AUTH_TYPE == "cognito":
+        target_url = f'{AUTH_PATH}/logout?client_id={client_id}&redirect_uri={redirect_uri}&response_type=code&scope={scope_list}'
+        return redirect(target_url, code=302)
+    elif AUTH_TYPE == "azuread":
+        target_url = f'{AUTH_URL}?client_id={client_id}&redirect_uri={redirect_uri}&response_type=code&scope={scope_list}&response_mode=query'
+        return redirect(target_url, code=302)
+    else:
+        raise Exception('Unsupported authentication type')
+
 
 def _get_params(_request):
     params = {**_request.args}

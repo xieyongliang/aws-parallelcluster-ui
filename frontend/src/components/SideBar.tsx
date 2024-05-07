@@ -15,6 +15,8 @@ import {
 import * as React from 'react'
 import {useTranslation} from 'react-i18next'
 import {useLocation, useNavigate} from 'react-router-dom'
+import {AppConfig} from '../app-config/types'
+import {getState} from '../store'
 
 export default function SideBar() {
   const {t} = useTranslation()
@@ -31,12 +33,28 @@ export default function SideBar() {
     [t],
   )
 
+  const appConfig: AppConfig = getState(['app', 'appConfig'])
   const navigationItems: ReadonlyArray<SideNavigationProps.Item> =
     React.useMemo(() => {
       return [
         {type: 'link', text: t('global.menu.clusters'), href: '/clusters'},
         {type: 'link', text: t('global.menu.images'), href: '/images'},
         {type: 'link', text: t('global.menu.users'), href: '/users'},
+        {type: 'divider'},
+        {
+          type: 'link',
+          text: t('global.menu.viewLicense'),
+          href: '/pcui/license.txt',
+          external: true,
+        },
+      ]
+    }, [t])
+
+  const navigationItemsNoUsers: ReadonlyArray<SideNavigationProps.Item> =
+    React.useMemo(() => {
+      return [
+        {type: 'link', text: t('global.menu.clusters'), href: '/clusters'},
+        {type: 'link', text: t('global.menu.images'), href: '/images'},
         {type: 'divider'},
         {
           type: 'link',
@@ -57,12 +75,23 @@ export default function SideBar() {
     [navigate],
   )
 
-  return (
-    <SideNavigation
-      header={header}
-      activeHref={activeHref}
-      onFollow={onFollow}
-      items={navigationItems}
-    />
-  )
+  if (appConfig.authType == 'cognito') {
+    return (
+      <SideNavigation
+        header={header}
+        activeHref={activeHref}
+        onFollow={onFollow}
+        items={navigationItems}
+      />
+    )
+  } else {
+    return (
+      <SideNavigation
+        header={header}
+        activeHref={activeHref}
+        onFollow={onFollow}
+        items={navigationItemsNoUsers}
+      />
+    )
+  }
 }
