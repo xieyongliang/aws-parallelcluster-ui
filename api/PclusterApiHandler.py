@@ -49,9 +49,9 @@ TOKEN_URL = os.getenv("TOKEN_URL", f"{AUTH_PATH}/oauth2/token")
 REVOKE_REFRESH_TOKEN_URL = os.getenv("REVOKE_REFRESH_TOKEN_URL", f"{AUTH_PATH}/oauth2/revoke")
 AUTH_URL = os.getenv("AUTH_URL", f"{AUTH_PATH}/login")
 JWKS_URL = os.getenv("JWKS_URL")
-AUDIENCE = os.getenv("AUDIENCE")
 USER_ROLES_CLAIM = os.getenv("USER_ROLES_CLAIM", "cognito:groups")
 USER_URL = os.getenv("USER_URL")
+LOGOUT_URL = os.getenv("LOGOUT_URL")
 
 try:
     if AUTH_TYPE == "cognito" and (not USER_POOL_ID or USER_POOL_ID == "") and SECRET_ID:
@@ -642,7 +642,7 @@ def get_identity():
         identity = _get_cognito_identity_from_token(decoded=decoded_access, claims=claims)
 
         if not id_token:
-            decoded_id = jwt_decode(id_token, audience=AUDIENCE, access_token=access_token)
+            decoded_id = jwt_decode(id_token, audience=CLIENT_ID, access_token=access_token)
             identity_from_id_token = _get_cognito_identity_from_token(decoded=decoded_id, claims=claims)
             identity.update(identity_from_id_token)
 
@@ -809,7 +809,7 @@ def _logout_redirect(config):
         target_url = f'{AUTH_PATH}/logout?client_id={client_id}&redirect_uri={redirect_uri}&response_type=code&scope={scope_list}'
         return redirect(target_url, code=302)
     elif AUTH_TYPE == "azuread":
-        target_url = f'{AUTH_URL}?client_id={client_id}&redirect_uri={redirect_uri}&response_type=code&scope={scope_list}&response_mode=query'
+        target_url = f'{LOGOUT_URL}?post_logout_redirect_uri={SITE_URL}/pcui'
         return redirect(target_url, code=302)
     else:
         raise Exception('Unsupported authentication type')

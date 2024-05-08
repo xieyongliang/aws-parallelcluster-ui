@@ -2,10 +2,10 @@ Parameters:
   ApiGatewayRestApi:
     Description: 'Api gateway'
     Type: String
-  RootResourceId:
+  ApiGatewayRootResourceId:
     Description: 'Root resource Id of Api gateway'
     Type: String
-  ApiDefinitionS3Uri:
+  ParallelClusterApiDefinitionS3Uri:
     Description: 'S3 Uri of ApiDefinition'
     Type: String
   ParallelClusterApiTemplateURL:
@@ -27,12 +27,19 @@ Parameters:
     Description: Comma separated list of security groups to be associated with the PCUI Lambda function.
     Type: CommaDelimitedList
     Default: ''
+  AuthType:
+    AllowedValues:
+      - cognito
+      - azuread
+    Default: azuread
+    Description: Supported authentication type.
+    Type: String
   CognitoRegion:
     Description: Region in which Cognito stack was deployed.
     Type: String
     Default: ''
-  CognitoAppClient:
-    Description: The id of the Cognito app client.
+  CognitoAppClientId:
+    Description: The id of the app client.
     Type: String
     Default: ''
   CognitoAccessKey:
@@ -43,12 +50,43 @@ Parameters:
     Description: The secret key for Cognito.
     Type: String
     Default: ''
-  UserPoolId:
-    Description: UserPoolId of a previously deployed PCUI Cognito User Pool. Leave blank to create a new one.
+  CognitoUserPoolAuthDomain:
+    Description: UserPoolAuthDomain of a previously deployed PCUI Cognito User Pool. Leave blank to create a new one.
     Type: String
     Default: ''
-  UserPoolAuthDomain:
-    Description: UserPoolAuthDomain of a previously deployed PCUI Cognito User Pool. Leave blank to create a new one.
+  CognitoUserPoolSecretName:
+    Description: 'Name of Cognito UserPool Secret'
+    Type: String
+  AzureADAppClientId:
+    Description: The id of the Cognito app client.
+    Type: String
+    Default: ''
+  AzureADAppClientSecret:
+    Description: The secret of the app client.
+    Type: String
+    Default: ''
+  AzureADAuthUrl:
+    Description: Url to Azure OAuth 2.0 authorization endpoint (v2).
+    Type: String
+    Default: ''
+  AzureADTokenUrl:
+    Description: Url to OAuth 2.0 token endpoint (v2).
+    Type: String
+    Default: ''
+  AzureADJwksUrl:
+    Description: Url to OpenID Connect metadata document - jwks.json.
+    Type: String
+    Default: ''
+  AzureADRevokeRefreshTokenUrl:
+    Description: Url to Microsoft Graph API revoke refresh token endpoint.
+    Type: String
+    Default: ''
+  AzureADUserUrl:
+    Description: Url to Microsoft Graph API endpoint.
+    Type: String
+    Default: ''
+  AzureADLogoutUrl:
+    Description: Url to Azure OAuth 2.0 logout endpoint (v2).
     Type: String
     Default: ''
   Version:
@@ -82,9 +120,6 @@ Parameters:
     Description: 'Prefix applied to the name of every IAM role and policy (max length: 10). [ParallelCluster >= 3.8.0]'
     Default: ''
     MaxLength: 10
-  UserPoolClientSecretName:
-    Description: 'Name of UserPoolSecret'
-    Type: String
 
 Metadata:
   AWS::CloudFormation::Interface:
@@ -93,6 +128,9 @@ Metadata:
           default: ParallelCluster UI
         Parameters:
           - PublicEcrImageUri
+          - AuthType
+          - ApiGatewayRestApi
+          - ApiGatewayRootResourceId
       - Label:
           default: (Optional) Private PCUI
         Parameters:
@@ -100,17 +138,30 @@ Metadata:
           - LambdaSubnetIds
           - LambdaSecurityGroupIds
       - Label:
-          default: External PCUI Cognito
+          default: (Optional) External PCUI Cognito
         Parameters:
           - CognitoRegion
-          - CognitoAppClient
+          - CognitoAppClientId
           - CognitoAccessKey
           - CognitoSecretKey
-          - UserPoolId
-          - UserPoolAuthDomain
+          - CognitoUserPoolAuthDomain
+          - CognitoUserPoolSecretName
+      - Label:
+          default: (Optional) External PCUI Azure AD
+        Parameters:
+          - AzureADAppClientId
+          - AzureADAppClientSecret
+          - AzureADAuthUrl
+          - AzureADTokenUrl
+          - AzureADJwksUrl
+          - AzureADRevokeRefreshTokenUrl
+          - AzureADUserUrl
+          - AzureADLogoutUrl
       - Label:
           default: ParallelCluster API
         Parameters:
+          - ParallelClusterApiDefinitionS3Uri
+          - ParallelClusterApiTemplateURL
           - Version
       - Label:
           default: (Optional) ImageBuilder Custom VPC
@@ -129,8 +180,6 @@ Metadata:
           - InfrastructureBucket
 
     ParameterLabels:
-      UserPoolId:
-        default: UserPoolId from a previously deployed PCUI
       UserPoolAuthDomain:
         default: UserPoolAuthDomain from a previously deployed PCUI
 
@@ -157,6 +206,8 @@ Conditions:
   UsePermissionBoundaryPCAPI: !Not [!Equals [!Ref PermissionsBoundaryPolicyPCAPI, '']]
   UseIAMRoleAndPolicyPrefix: !Not [!Equals [!Ref IAMRoleAndPolicyPrefix, '']]
   InCNCloud: !Equals ["aws-cn", !Ref "AWS::Partition"]
+  AuthWithCognito: !Equals ["cognito", !Ref AuthType]
+  AuthWithAzureAD: !Equals ["azuread", !Ref AuthType]
 
 Mappings:
   ParallelClusterUI:
@@ -171,7 +222,7 @@ Resources:
       Parameters:
         PermissionsBoundaryPolicy: !If [ UsePermissionBoundaryPCAPI, !Ref PermissionsBoundaryPolicyPCAPI, !Ref AWS::NoValue ]
         IAMRoleAndPolicyPrefix: !If [ UseIAMRoleAndPolicyPrefix, !Ref IAMRoleAndPolicyPrefix, !Ref AWS::NoValue ]
-        ApiDefinitionS3Uri: !Ref ApiDefinitionS3Uri
+        ApiDefinitionS3Uri: !Ref ParallelClusterApiDefinitionS3Uri
         CreateApiUserRole: False
         EnableIamAdminAccess: True
         VpcEndpointId: !If [ IsPrivate, !Ref VpcEndpointId, !Ref AWS::NoValue ]
@@ -192,7 +243,8 @@ Resources:
       TemplateURL: !Ref ParallelClusterApiTemplateURL
       TimeoutInMinutes: 30
 
-  ParallelClusterUIFun:
+  ParallelClusterUIFunWithCognito:
+    Condition: AuthWithCognito
     Type: AWS::Lambda::Function
     Properties:
       Role: !GetAtt ParallelClusterUIUserRole.Arn
@@ -217,9 +269,10 @@ Resources:
           SITE_URL: !Sub
            - https://${Api}.execute-api.${AWS::Region}.${AWS::URLSuffix}/pcui
            - Api: !Ref ApiGatewayRestApi
-          AUTH_PATH: !Ref UserPoolAuthDomain
-          SECRET_ID: !Ref UserPoolClientSecretName
-          AUDIENCE: !Ref CognitoAppClient
+          AUTH_TYPE: !Ref AuthType
+          AUTH_PATH: !Ref CognitoUserPoolAuthDomain
+          SECRET_ID: !Ref CognitoUserPoolSecretName
+          CLIENT_ID: !Ref CognitoAppClientId
           COGNITO_REGION: !Ref CognitoRegion
           COGNITO_ACCESS_KEY: !Ref CognitoAccessKey
           COGNITO_SECRET_KEY: !Ref CognitoSecretKey
@@ -235,11 +288,58 @@ Resources:
               - '-'
               - [!Select [2, !Split ['/', !Ref EcrImage]], !Select [3, !Split ['/', !Ref EcrImage]]]
 
+  ParallelClusterUIFunWithAzureAD:
+    Condition: AuthWithAzureAD
+    Type: AWS::Lambda::Function
+    Properties:
+      Role: !GetAtt ParallelClusterUIUserRole.Arn
+      PackageType: Image
+      MemorySize: 512
+      Timeout: 900
+      Tags:
+        - Key: 'parallelcluster:ui:version'
+          Value: !FindInMap [ ParallelClusterUI, Constants, Version ]
+      TracingConfig:
+        Mode: Active
+      VpcConfig:
+        Fn::If:
+          - IsPrivate
+          - SubnetIds: !Ref LambdaSubnetIds
+            SecurityGroupIds: !Ref LambdaSecurityGroupIds
+          - !Ref AWS::NoValue
+      Environment:
+        Variables:
+          API_BASE_URL: !GetAtt [ ParallelClusterApi, Outputs.ParallelClusterApiInvokeUrl ]
+          API_VERSION: !Ref Version
+          SITE_URL: !Sub
+           - https://${Api}.execute-api.${AWS::Region}.${AWS::URLSuffix}/pcui
+           - Api: !Ref ApiGatewayRestApi
+          AUTH_TYPE: !Ref AuthType
+          AUTH_URL: !Ref AzureADAuthUrl
+          TOKEN_URL: !Ref AzureADTokenUrl
+          JWKS_URL: !Ref AzureADJwksUrl
+          REVOKE_REFRESH_TOKEN_URL: !Ref AzureADRevokeRefreshTokenUrl
+          USER_URL: !Ref AzureADUserUrl
+          LOGOUT_URL: !Ref AzureADLogoutUrl
+          CLIENT_ID: !Ref AzureADAppClientId
+          CLIENT_SECRET: !Ref AzureADAppClientSecret
+          OIDC_PROVIDER: 'AzureAD'
+      FunctionName: !Sub
+        - ParallelClusterUIFun-${StackIdSuffix}
+        - { StackIdSuffix: !Select [2, !Split ['/', !Ref 'AWS::StackId']] }
+      Code:
+        ImageUri: !Sub
+          - ${AWS::AccountId}.dkr.ecr.${AWS::Region}.${AWS::URLSuffix}/${Repository}:${Version}
+          - Repository: !Ref PrivateEcrRepository
+            Version: !Join
+              - '-'
+              - [!Select [2, !Split ['/', !Ref EcrImage]], !Select [3, !Split ['/', !Ref EcrImage]]]
+
   ApiGatewayProxyResource:
     Type: AWS::ApiGateway::Resource
     Properties:
       RestApiId: !Ref ApiGatewayRestApi
-      ParentId: !Ref RootResourceId
+      ParentId: !Ref ApiGatewayRootResourceId
       PathPart: '{proxy+}'
 
   ApiGatewayMethod:
@@ -260,7 +360,7 @@ Resources:
     Type: AWS::ApiGateway::Method
     Properties:
       RestApiId: !Ref ApiGatewayRestApi
-      ResourceId: !Ref RootResourceId
+      ResourceId: !Ref ApiGatewayRootResourceId
       HttpMethod: ANY
       AuthorizationType: NONE
       Integration:
@@ -563,12 +663,19 @@ Resources:
       Version: !FindInMap [ParallelClusterUI, Constants, Version]
       EcrImagePipelineArn: !GetAtt EcrImagePipeline.Arn
 
-  ParallelClusterUILambdaLogGroup:
+  ParallelClusterUILambdaLogGroupWithCognito:
+    Condition: AuthWithCognito
     Type: AWS::Logs::LogGroup
     Properties:
-      LogGroupName: !Sub /aws/lambda/${ParallelClusterUIFun}
+      LogGroupName: !Sub /aws/lambda/${ParallelClusterUIFunWithCognito}
       RetentionInDays: 90
 
+  ParallelClusterUILambdaLogGroupWithAzureAD:
+    Condition: AuthWithAzureAD
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${ParallelClusterUIFunWithAzureAD}
+      RetentionInDays: 90
 
   ParallelClusterUIUserRole:
     Type: AWS::IAM::Role
@@ -598,11 +705,23 @@ Resources:
       PermissionsBoundary: !If [UsePermissionBoundary, !Ref PermissionsBoundaryPolicy, !Ref 'AWS::NoValue']
 
 
-  ParallelClusterUIApiGatewayInvoke:
+  ParallelClusterUIApiGatewayInvokeWithCognito:
+    Condition: AuthWithCognito
     Type: AWS::Lambda::Permission
     Properties:
       Action: lambda:InvokeFunction
-      FunctionName: !GetAtt ParallelClusterUIFun.Arn
+      FunctionName: !GetAtt ParallelClusterUIFunWithCognito.Arn
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub
+        - arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${ApiGateway}/*
+        - { ApiGateway: !Ref ApiGatewayRestApi }
+
+  ParallelClusterUIApiGatewayInvokeWithAzureAD:
+    Condition: AuthWithAzureAD
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt ParallelClusterUIFunWithAzureAD.Arn
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub
         - arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${ApiGateway}/*
@@ -785,9 +904,6 @@ Resources:
 
 
 Outputs:
-  ParallelClusterUILambdaArn:
-    Description: 'ARN of the ParallelCluster UI Lambda function'
-    Value: !GetAtt ParallelClusterUIFun.Arn
   ParallelClusterUIUrl:
     Description: 'Url to reach the ParallelCluster UI Site.'
     Export:
