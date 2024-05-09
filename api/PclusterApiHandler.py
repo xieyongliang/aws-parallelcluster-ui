@@ -214,7 +214,7 @@ def get_scopes_list():
   if AUTH_TYPE == "cognito" and not SCOPES_LIST:
     return "openid"
   elif AUTH_TYPE == "azuread" and not SCOPES_LIST:
-    return "user.read mail.read offline_access"
+    return "https://graph.microsoft.com/.default"
   elif "openid" not in SCOPES_LIST:
     return SCOPES_LIST + " openid"
   return SCOPES_LIST
@@ -610,7 +610,7 @@ def _get_azuread_identity_from_token(access_token):
 
     user_resp = requests.get(
         USER_URL,
-        headers={"Authorization": f"Bearer {access_token}"},
+        headers={"Authorization": access_token}
     )
 
     if user_resp.status_code != 200:
@@ -618,6 +618,18 @@ def _get_azuread_identity_from_token(access_token):
 
     identity["username"] = user_resp.json()["displayName"]
     identity["attributes"]["email"] = user_resp.json()["mail"]
+    identity["user_roles"]  = []
+
+    memberof_resp = requests.get(
+        f'{USER_URL}/memberOf',
+        headers={"Authorization": access_token}
+    )
+
+    if memberof_resp.status_code != 200:
+        abort(memberof_resp.status_code)
+
+    for _ in memberof_resp.json()["value"]:
+        identity["user_roles"].append(_["displayName"])
 
     return identity
 
@@ -652,7 +664,6 @@ def get_identity():
             raise Exception('No user_roles present in access or id token.')
     elif AUTH_TYPE == "azuread":
         identity = _get_azuread_identity_from_token(access_token)
-        identity["user_roles"]  = ["user", "admin"]
 
         if "username" not in identity:
             raise Exception('No username present in access token.')
@@ -686,7 +697,7 @@ def list_users():
         access_token = request.cookies.get("accessToken")
         user_resp = requests.get(
             USER_URL,
-            headers={"Authorization": f"Bearer {access_token}"},
+            headers={"Authorization": access_token}
         )
 
         if user_resp.status_code != 200:
@@ -794,7 +805,8 @@ def revoke_cognito_refresh_token(refresh_token):
 def revoke_azuread_refresh_token(access_token):
     revoke_resp = requests.post(
         REVOKE_REFRESH_TOKEN_URL,
-        headers={"Authorization": f"Bearer {access_token}"})
+        headers={"Authorization": access_token}
+    )
 
     if revoke_resp.status_code != 200:
         logger.warning('Unable to revoke azure refresh token')

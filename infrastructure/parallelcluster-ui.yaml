@@ -73,10 +73,6 @@ Parameters:
     Description: Url to OAuth 2.0 token endpoint (v2).
     Type: String
     Default: ''
-  AzureADJwksUrl:
-    Description: Url to OpenID Connect metadata document - jwks.json.
-    Type: String
-    Default: ''
   AzureADRevokeRefreshTokenUrl:
     Description: Url to Microsoft Graph API revoke refresh token endpoint.
     Type: String
@@ -153,7 +149,6 @@ Metadata:
           - AzureADAppClientSecret
           - AzureADAuthUrl
           - AzureADTokenUrl
-          - AzureADJwksUrl
           - AzureADRevokeRefreshTokenUrl
           - AzureADUserUrl
           - AzureADLogoutUrl
@@ -317,7 +312,6 @@ Resources:
           AUTH_TYPE: !Ref AuthType
           AUTH_URL: !Ref AzureADAuthUrl
           TOKEN_URL: !Ref AzureADTokenUrl
-          JWKS_URL: !Ref AzureADJwksUrl
           REVOKE_REFRESH_TOKEN_URL: !Ref AzureADRevokeRefreshTokenUrl
           USER_URL: !Ref AzureADUserUrl
           LOGOUT_URL: !Ref AzureADLogoutUrl
