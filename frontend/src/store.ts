@@ -67,7 +67,8 @@ function rootReducer(state: any, action: any) {
   switch (action.type) {
     case 'state/clearAll':
       // Keep the selected region, everything else will be retrieved again
-      const keep = (({selectedRegion, sidebar, section}) => ({
+      const keep = (({appConfig, selectedRegion, sidebar, section}) => ({
+        appConfig,
         selectedRegion,
         sidebar,
         section,
@@ -145,14 +146,21 @@ function useState(path: any) {
 }
 
 function ssmPolicy(region: any) {
-  const partition = region && region.startsWith('us-gov') ? 'aws-us-gov' : region && region.startsWith('cn') ? 'aws-cn' : 'aws'
+  const partition =
+    region && region.startsWith('us-gov')
+      ? 'aws-us-gov'
+      : region && region.startsWith('cn')
+      ? 'aws-cn'
+      : 'aws'
   return `arn:${partition}:iam::aws:policy/AmazonSSMManagedInstanceCore`
 }
 
 function consoleDomain(region: any) {
   return region && region.startsWith('us-gov')
     ? 'https://console.amazonaws-us-gov.com'
-    : region && region.startsWith('cn') ? `https://${region}.console.amazonaws.cn` : `https://${region}.console.aws.amazon.com`
+    : region && region.startsWith('cn')
+    ? `https://${region}.console.amazonaws.cn`
+    : `https://${region}.console.aws.amazon.com`
 }
 
 export {

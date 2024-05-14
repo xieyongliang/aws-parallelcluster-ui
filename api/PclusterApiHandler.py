@@ -25,7 +25,7 @@ from api.exception.exceptions import RefreshTokenError
 from api.pcm_globals import set_auth_cookies_in_context, logger, auth_cookies
 from api.security.csrf.constants import CSRF_COOKIE_NAME
 from api.security.csrf.csrf import csrf_needed
-from api.utils import disable_auth
+from api.utils import disable_auth, running_local
 from api.validation import validated
 from api.validation.schemas import PCProxyArgs, PCProxyBody
 
@@ -821,7 +821,11 @@ def _logout_redirect(config):
         target_url = f'{AUTH_PATH}/logout?client_id={client_id}&redirect_uri={redirect_uri}&response_type=code&scope={scope_list}'
         return redirect(target_url, code=302)
     elif AUTH_TYPE == "azuread":
-        target_url = f'{LOGOUT_URL}?post_logout_redirect_uri={SITE_URL}/pcui'
+        is_running_local = running_local()
+        if is_running_local:
+            target_url = f'{LOGOUT_URL}?post_logout_redirect_uri={SITE_URL}/pcui'
+        else:
+            target_url = f'{LOGOUT_URL}?post_logout_redirect_uri={SITE_URL}'
         return redirect(target_url, code=302)
     else:
         raise Exception('Unsupported authentication type')

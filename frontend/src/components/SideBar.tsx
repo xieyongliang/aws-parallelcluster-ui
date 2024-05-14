@@ -33,7 +33,6 @@ export default function SideBar() {
     [t],
   )
 
-  const appConfig: AppConfig = getState(['app', 'appConfig'])
   const navigationItems: ReadonlyArray<SideNavigationProps.Item> =
     React.useMemo(() => {
       return [
@@ -75,23 +74,17 @@ export default function SideBar() {
     [navigate],
   )
 
-  if (appConfig.authType == 'cognito') {
-    return (
-      <SideNavigation
-        header={header}
-        activeHref={activeHref}
-        onFollow={onFollow}
-        items={navigationItems}
-      />
-    )
-  } else {
-    return (
-      <SideNavigation
-        header={header}
-        activeHref={activeHref}
-        onFollow={onFollow}
-        items={navigationItemsNoUsers}
-      />
-    )
-  }
+  var appConfig: AppConfig = getState(['app', 'appConfig'])
+  return (
+    <SideNavigation
+      header={header}
+      activeHref={activeHref}
+      onFollow={onFollow}
+      items={
+        appConfig.authType == 'azuread'
+          ? navigationItemsNoUsers
+          : navigationItems
+      }
+    />
+  )
 }

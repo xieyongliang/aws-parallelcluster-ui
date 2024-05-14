@@ -10,7 +10,7 @@
 // limitations under the License.
 import React, {useMemo} from 'react'
 
-import {useState, setState, clearAllState} from '../store'
+import {useState, setState, clearAllState, getState} from '../store'
 import {LoadInitialState} from '../model'
 
 // UI Elements
@@ -20,6 +20,7 @@ import {NavigateFunction, useLocation, useNavigate} from 'react-router-dom'
 import {ButtonDropdownProps} from '@cloudscape-design/components'
 import {colorTextInteractiveDisabled} from '@cloudscape-design/design-tokens'
 import {useTranslation} from 'react-i18next'
+import {AppConfig} from '../app-config/types'
 
 export function regions(selected: string) {
   const supportedRegions = [
@@ -75,21 +76,17 @@ const regionsToDropdownItems = (
   selectedRegion: string,
   defaultRegion: string,
 ) => {
-  let validRegionGroups : string[][][] = []
+  let validRegionGroups: string[][][] = []
   regionGroups.forEach(regionGroup => {
-    let validRegionGroup : string[][] = []
+    let validRegionGroup: string[][] = []
     regionGroup.forEach(regions => {
       if (defaultRegion.startsWith('cn')) {
-        if (regions[1].startsWith('cn'))
-        validRegionGroup.push(regions)
-      }
-      else {
-        if (!regions[1].startsWith('cn'))
-        validRegionGroup.push(regions)
+        if (regions[1].startsWith('cn')) validRegionGroup.push(regions)
+      } else {
+        if (!regions[1].startsWith('cn')) validRegionGroup.push(regions)
       }
     })
-    if (validRegionGroup.length > 0)
-      validRegionGroups.push(validRegionGroup)
+    if (validRegionGroup.length > 0) validRegionGroups.push(validRegionGroup)
   })
 
   return validRegionGroups.map((regions, i) => {
@@ -152,12 +149,16 @@ export default function Topbar() {
     queryClient.invalidateQueries()
   }
 
+  const appConfig: AppConfig = getState(['app', 'appConfig'])
+
   const profileActions: ButtonDropdownProps.Items = useMemo(
     () => [
       {
         id: 'signout',
         text: t('global.topBar.signOut'),
-        href: '/pcui/logout',
+        href: appConfig.redirectUri.includes('localhost')
+          ? '/logout'
+          : '/pcui/logout',
       },
     ],
     [t],
@@ -207,7 +208,11 @@ export default function Topbar() {
                 </span>
               ),
               onItemClick: selectRegion,
-              items: regionsToDropdownItems(displayedRegions, selectedRegion, defaultRegion),
+              items: regionsToDropdownItems(
+                displayedRegions,
+                selectedRegion,
+                defaultRegion,
+              ),
             },
           ],
         ]}
