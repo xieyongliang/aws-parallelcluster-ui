@@ -12,3 +12,5 @@ public/*
 .ignore
 infrastructure/environments/*
 !infrastructure/environments/demo-*
+venv
+env.sh
