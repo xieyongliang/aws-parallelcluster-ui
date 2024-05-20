@@ -59,8 +59,8 @@ Outputs:
     Description: Root resource Id of Api Gateway
     Value: !GetAtt ApiGatewayRestApi.RootResourceId
 
-  CognitoCallbackURL:
-    Description: 'Url to callback for Cognito login.'
+  RedirectURL:
+    Description: 'Url to callback for login.'
     Value: !Sub
       - https://${Api}.execute-api.${AWS::Region}.${AWS::URLSuffix}/pcui/login
       - Api: !Ref ApiGatewayRestApi

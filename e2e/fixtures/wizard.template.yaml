@@ -11,7 +11,7 @@ Scheduling:
     - Name: queue0
       ComputeResources:
         - Name: queue0-compute-resource-0
-          InstanceType: c5n.large
+          InstanceType: c5.large
           MinCount: 0
           MaxCount: 4
       Networking:

@@ -17,7 +17,7 @@ Parameters:
     Description: 'Prefix applied to the name of every IAM role and policy (max length: 10)'
     Default: ''
     MaxLength: 10
-  CognitoCallbackURL:
+  RedirectURL:
     Type: String
     Description: 'Cognito login Callback URL'
 
@@ -113,7 +113,7 @@ Resources:
       ExplicitAuthFlows:
         - ALLOW_REFRESH_TOKEN_AUTH
       CallbackURLs:
-        - !Ref CognitoCallbackURL
+        - !Ref RedirectURL
       SupportedIdentityProviders:
         - COGNITO
       UserPoolId: !Ref CognitoUserPool
