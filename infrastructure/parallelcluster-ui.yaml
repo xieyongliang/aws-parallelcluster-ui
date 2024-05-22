@@ -34,6 +34,9 @@ Parameters:
     Default: azuread
     Description: Supported authentication type.
     Type: String
+  ADMINS_GROUP:
+    Description: Admins group in JSON list format. Leave blank to use ["admin"] by default.
+    Type: String
   CognitoRegion:
     Description: Region in which Cognito stack was deployed.
     Type: String
@@ -251,6 +254,7 @@ Resources:
           COGNITO_REGION: !Ref CognitoRegion
           COGNITO_ACCESS_KEY: !Ref CognitoAccessKey
           COGNITO_SECRET_KEY: !Ref CognitoSecretKey
+          ADMINS_GROUP: !Ref ADMINS_GROUP
           OIDC_PROVIDER: 'Cognito'
       FunctionName: !Sub
         - ParallelClusterUIFun-${StackIdSuffix}
@@ -293,6 +297,7 @@ Resources:
           CLIENT_ID: !Ref AzureADAppClientId
           CLIENT_SECRET: !Ref AzureADAppClientSecret
           TENANT_ID: !Ref AzureADTenantId
+          ADMINS_GROUP: !Ref ADMINS_GROUP
           OIDC_PROVIDER: 'AzureAD'
       FunctionName: !Sub
         - ParallelClusterUIFun-${StackIdSuffix}
