@@ -45,13 +45,14 @@ SCOPES_LIST = os.getenv("SCOPES_LIST")
 REGION = os.getenv("COGNITO_REGION")
 ACCESS_KEY = os.getenv("COGNITO_ACCESS_KEY")
 SECRET_KEY = os.getenv("COGNITO_SECRET_KEY")
-TOKEN_URL = os.getenv("TOKEN_URL", f"{AUTH_PATH}/oauth2/token")
-REVOKE_REFRESH_TOKEN_URL = os.getenv("REVOKE_REFRESH_TOKEN_URL", f"{AUTH_PATH}/oauth2/revoke")
-AUTH_URL = os.getenv("AUTH_URL", f"{AUTH_PATH}/login")
 JWKS_URL = os.getenv("JWKS_URL")
 USER_ROLES_CLAIM = os.getenv("USER_ROLES_CLAIM", "cognito:groups")
-USER_URL = os.getenv("USER_URL")
-LOGOUT_URL = os.getenv("LOGOUT_URL")
+TENANT_ID = os.getenv("TENANT_ID")
+USER_URL = f'https://graph.microsoft.com/v1.0/me'
+REVOKE_REFRESH_TOKEN_URL = "https://graph.microsoft.com/v1.0/me/revokeSignInSessions" if AUTH_TYPE == "azuread" else f"{AUTH_PATH}/oauth2/revoke"
+TOKEN_URL = f'https://login.microsoftonline.com/{TENANT_ID}/oauth2/v2.0/token' if AUTH_TYPE == "azuread" else f"{AUTH_PATH}/oauth2/token"
+AUTH_URL = f'https://login.microsoftonline.com/{TENANT_ID}/oauth2/v2.0/authorize' if AUTH_TYPE == "azuread" else f"{AUTH_PATH}/login"
+LOGOUT_URL = f'https://login.microsoftonline.com/{TENANT_ID}/oauth2/v2.0/logout'
 
 try:
     if AUTH_TYPE == "cognito" and (not USER_POOL_ID or USER_POOL_ID == "") and SECRET_ID:
@@ -617,7 +618,7 @@ def _get_azuread_identity_from_token(access_token):
         abort(user_resp.status_code)
 
     identity["username"] = user_resp.json()["displayName"]
-    identity["attributes"]["email"] = user_resp.json()["mail"]
+    identity["attributes"]["email"] = user_resp.json()["mail"] if user_resp.json()["mail"] else identity["username"]
     identity["user_roles"]  = []
 
     memberof_resp = requests.get(

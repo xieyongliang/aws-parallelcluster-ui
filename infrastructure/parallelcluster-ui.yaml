@@ -58,31 +58,15 @@ Parameters:
     Description: 'Name of Cognito UserPool Secret'
     Type: String
   AzureADAppClientId:
-    Description: The id of the Cognito app client.
+    Description: The id of the Azure app client.
     Type: String
     Default: ''
   AzureADAppClientSecret:
-    Description: The secret of the app client.
+    Description: The secret of the Azure app client.
     Type: String
     Default: ''
-  AzureADAuthUrl:
-    Description: Url to Azure OAuth 2.0 authorization endpoint (v2).
-    Type: String
-    Default: ''
-  AzureADTokenUrl:
-    Description: Url to OAuth 2.0 token endpoint (v2).
-    Type: String
-    Default: ''
-  AzureADRevokeRefreshTokenUrl:
-    Description: Url to Microsoft Graph API revoke refresh token endpoint.
-    Type: String
-    Default: ''
-  AzureADUserUrl:
-    Description: Url to Microsoft Graph API endpoint.
-    Type: String
-    Default: ''
-  AzureADLogoutUrl:
-    Description: Url to Azure OAuth 2.0 logout endpoint (v2).
+  AzureADTenantId:
+    Description: The id of the Azure tenant.
     Type: String
     Default: ''
   Version:
@@ -147,11 +131,7 @@ Metadata:
         Parameters:
           - AzureADAppClientId
           - AzureADAppClientSecret
-          - AzureADAuthUrl
-          - AzureADTokenUrl
-          - AzureADRevokeRefreshTokenUrl
-          - AzureADUserUrl
-          - AzureADLogoutUrl
+          - AzureADTenantId
       - Label:
           default: ParallelCluster API
         Parameters:
@@ -310,13 +290,9 @@ Resources:
            - https://${Api}.execute-api.${AWS::Region}.${AWS::URLSuffix}/pcui
            - Api: !Ref ApiGatewayRestApi
           AUTH_TYPE: !Ref AuthType
-          AUTH_URL: !Ref AzureADAuthUrl
-          TOKEN_URL: !Ref AzureADTokenUrl
-          REVOKE_REFRESH_TOKEN_URL: !Ref AzureADRevokeRefreshTokenUrl
-          USER_URL: !Ref AzureADUserUrl
-          LOGOUT_URL: !Ref AzureADLogoutUrl
           CLIENT_ID: !Ref AzureADAppClientId
           CLIENT_SECRET: !Ref AzureADAppClientSecret
+          TENANT_ID: !Ref AzureADTenantId
           OIDC_PROVIDER: 'AzureAD'
       FunctionName: !Sub
         - ParallelClusterUIFun-${StackIdSuffix}

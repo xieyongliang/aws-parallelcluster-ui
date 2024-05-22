@@ -30,7 +30,7 @@ import componentsStyle from '../Components.module.css'
 
 const queuesPath = ['app', 'wizard', 'config', 'Scheduling', 'SlurmQueues']
 const queuesErrorsPath = ['app', 'wizard', 'errors', 'queues']
-const defaultInstanceType = 'c5n.large'
+const defaultInstanceType = 'c5.large'
 
 export function allInstancesSupportEFA(
   instances: ComputeResourceInstance[],
