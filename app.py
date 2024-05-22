@@ -37,7 +37,8 @@ from api.PclusterApiHandler import (
     sacct,
     scontrol_job,
     CLIENT_ID, CLIENT_SECRET, USER_POOL_ID, pc,
-    AUTH_TYPE
+    AUTH_TYPE,
+    ADMINS_GROUP
 )
 from api.costmonitoring import costs
 from api.logging import parse_log_entry, push_log_entry
@@ -48,8 +49,6 @@ from api.security.fingerprint import CognitoFingerprintGenerator, AzureADFingerp
 from api.validation import validated, EC2Action
 from api.validation.schemas import CreateUser, DeleteUser, GetClusterConfig, GetCustomImageConfig, GetAwsConfig, GetInstanceTypes,\
      Login, PushLog, PriceEstimate, GetDcvSession, QueueStatus, ScontrolJob, CancelJob, Sacct
-
-ADMINS_GROUP = { "admin" }
 
 class RegexConverter(BaseConverter):
     def __init__(self, url_map, *items):

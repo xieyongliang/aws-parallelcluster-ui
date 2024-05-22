@@ -54,6 +54,12 @@ TOKEN_URL = f'https://login.microsoftonline.com/{TENANT_ID}/oauth2/v2.0/token' i
 AUTH_URL = f'https://login.microsoftonline.com/{TENANT_ID}/oauth2/v2.0/authorize' if AUTH_TYPE == "azuread" else f"{AUTH_PATH}/login"
 LOGOUT_URL = f'https://login.microsoftonline.com/{TENANT_ID}/oauth2/v2.0/logout'
 
+ADMINS_GROUP = os.getenv('ADMINS_GROUP')
+try:
+    ADMINS_GROUP = {x for x in json.loads(ADMINS_GROUP)}
+except:
+    ADMINS_GROUP = {"admin"}
+
 try:
     if AUTH_TYPE == "cognito" and (not USER_POOL_ID or USER_POOL_ID == "") and SECRET_ID:
         secrets = boto3.client(
@@ -196,11 +202,15 @@ def authenticate(groups):
         if len(groups_granted) == 0:
             return abort(403)
     elif AUTH_TYPE == "azuread":
-        return
+        identity = _get_azuread_identity_from_token(access_token)
+        azure_roles = identity["user_roles"]
+        groups_granted = groups.intersection(azure_roles)
+        if len(groups_granted) == 0:
+            return abort(403)
     else:
         raise("Unsupported authentication type")
 
-def authenticated(groups={"admin"}):
+def authenticated(groups=ADMINS_GROUP):
     def _authenticated(func):
         @functools.wraps(func)
         def _wrapper_authenticated(*args, **kwargs):
@@ -637,7 +647,7 @@ def _get_azuread_identity_from_token(access_token):
 
 def get_identity():
     if disable_auth():
-        return {"user_roles": ["user", "admin"], "username": "username", "attributes": {"email": "user@domain.com"}}
+        return {"user_roles": ADMINS_GROUP, "username": "username", "attributes": {"email": "user@domain.com"}}
 
     access_token = request.cookies.get("accessToken")
     if AUTH_TYPE == "cognito":
@@ -668,6 +678,8 @@ def get_identity():
 
         if "username" not in identity:
             raise Exception('No username present in access token.')
+        if "user_roles" not in identity:
+            raise Exception('No user_roles present in access or id token.')
     else:
         raise Exception('Unsupported authentication type')
 
@@ -734,7 +746,7 @@ def create_user():
     user = cognito.admin_create_user(
         UserPoolId=USER_POOL_ID, Username=username, DesiredDeliveryMediums=["EMAIL"], UserAttributes=user_attributes
     ).get("User")
-    cognito.admin_add_user_to_group(UserPoolId=USER_POOL_ID, Username=username, GroupName="admin")
+    cognito.admin_add_user_to_group(UserPoolId=USER_POOL_ID, Username=username, GroupName=list(ADMINS_GROUP)[0])
     return _augment_user(cognito, user)
 
 def login():
@@ -841,14 +853,14 @@ def _get_params(_request):
 pc = Blueprint('pc', __name__)
 
 @pc.get('/', strict_slashes=False)
-@authenticated({'admin'})
+@authenticated(ADMINS_GROUP)
 @validated(params=PCProxyArgs)
 def pc_proxy_get():
     response = sigv4_request(request.method, API_BASE_URL, request.args.get("path"), _get_params(request))
     return response.json(), response.status_code
 
 @pc.route('/', methods=['POST','PUT','PATCH','DELETE'], strict_slashes=False)
-@authenticated({'admin'})
+@authenticated(ADMINS_GROUP)
 @csrf_needed
 @validated(params=PCProxyArgs, body=PCProxyBody, raise_on_missing_body=False)
 def pc_proxy():

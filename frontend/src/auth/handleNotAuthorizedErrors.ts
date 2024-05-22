@@ -18,8 +18,23 @@ export const handleNotAuthorizedErrors =
     return requestPromise.catch(error => {
       switch ((error as AxiosError).response?.status) {
         case 401:
-        case 403:
           redirectToAuthServer(authType, authUrl, clientId, scopes, redirectUri)
+          return Promise.reject(error)
+        case 403:
+          if (authType == 'azuread')
+            window.history.pushState(
+              {},
+              '',
+              redirectUri.includes('localhost') ? '/logout' : '/pcui/logout',
+            )
+          else
+            redirectToAuthServer(
+              authType,
+              authUrl,
+              clientId,
+              scopes,
+              redirectUri,
+            )
           return Promise.reject(error)
       }
       return Promise.reject(error)
