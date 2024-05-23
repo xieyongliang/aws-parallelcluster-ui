@@ -112,6 +112,7 @@ Metadata:
         Parameters:
           - PublicEcrImageUri
           - AuthType
+          - ADMINS_GROUP
           - ApiGatewayRestApi
           - ApiGatewayRootResourceId
       - Label:
