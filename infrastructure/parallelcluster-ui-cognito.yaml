@@ -289,10 +289,6 @@ Outputs:
       - https://${Domain}.${Auth}.${AWS::Region}.amazoncognito.com
       - {Domain: !Ref UserPoolDomain, Auth: !If [GovCloud, 'auth-fips', 'auth']}
 
-  UserPoolId:
-    Description: Cognito UserPool Id
-    Value:  !Ref CognitoUserPool
-
   AppClientId:
     Description: Cognito AppClient id
     Value: !Ref CognitoAppClient

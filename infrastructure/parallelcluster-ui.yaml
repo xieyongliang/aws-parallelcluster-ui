@@ -41,10 +41,6 @@ Parameters:
     Description: Region in which Cognito stack was deployed.
     Type: String
     Default: ''
-  CognitoAppClientId:
-    Description: The id of the app client.
-    Type: String
-    Default: ''
   CognitoAccessKey:
     Description: The access key for Cognito.
     Type: String

@@ -613,7 +613,7 @@ def _get_cognito_identity_from_token(decoded, claims):
     for claim in claims:
       if claim in decoded:
         identity["attributes"][claim] = decoded[claim]
-    
+
     return identity
 
 def _get_azuread_identity_from_token(access_token):
@@ -664,7 +664,7 @@ def get_identity():
 
         identity = _get_cognito_identity_from_token(decoded=decoded_access, claims=claims)
 
-        if not id_token:
+        if id_token:
             decoded_id = jwt_decode(id_token, audience=CLIENT_ID, access_token=access_token)
             identity_from_id_token = _get_cognito_identity_from_token(decoded=decoded_id, claims=claims)
             identity.update(identity_from_id_token)
