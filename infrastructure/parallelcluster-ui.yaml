@@ -121,7 +121,6 @@ Metadata:
           default: (Optional) External PCUI Cognito
         Parameters:
           - CognitoRegion
-          - CognitoAppClientId
           - CognitoAccessKey
           - CognitoSecretKey
           - CognitoUserPoolAuthDomain
@@ -247,7 +246,6 @@ Resources:
           AUTH_TYPE: !Ref AuthType
           AUTH_PATH: !Ref CognitoUserPoolAuthDomain
           SECRET_ID: !Ref CognitoUserPoolSecretName
-          CLIENT_ID: !Ref CognitoAppClientId
           COGNITO_REGION: !Ref CognitoRegion
           COGNITO_ACCESS_KEY: !Ref CognitoAccessKey
           COGNITO_SECRET_KEY: !Ref CognitoSecretKey
