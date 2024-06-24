@@ -10,7 +10,7 @@
 # limitations under the License.
 import datetime
 
-from flask import Response, request
+from flask import redirect, Response, request
 from flask.json.provider import DefaultJSONProvider
 from werkzeug.routing import BaseConverter
 
@@ -35,20 +35,27 @@ from api.PclusterApiHandler import (
     price_estimate,
     queue_status,
     sacct,
+    saml_acs,
+    saml_sls,
     scontrol_job,
     CLIENT_ID, CLIENT_SECRET, USER_POOL_ID, pc,
     AUTH_TYPE,
-    ADMINS_GROUP
+    ADMINS_GROUP,
+    IDC_SSO_URL,
+    IDC_CERTIFICATE,
 )
 from api.costmonitoring import costs
 from api.logging import parse_log_entry, push_log_entry
 from api.pcm_globals import logger
 from api.security.csrf import CSRF
 from api.security.csrf.csrf import csrf_needed
-from api.security.fingerprint import CognitoFingerprintGenerator, AzureADFingerprintGenerator
+from api.security.fingerprint import CognitoFingerprintGenerator, AzureADFingerprintGenerator, \
+    IdentityCenterFingerprintGenerator
 from api.validation import validated, EC2Action
-from api.validation.schemas import CreateUser, DeleteUser, GetClusterConfig, GetCustomImageConfig, GetAwsConfig, GetInstanceTypes,\
-     Login, PushLog, PriceEstimate, GetDcvSession, QueueStatus, ScontrolJob, CancelJob, Sacct
+from api.validation.schemas import CreateUser, DeleteUser, GetClusterConfig, GetCustomImageConfig, GetAwsConfig, \
+    GetInstanceTypes, \
+    PushLog, PriceEstimate, GetDcvSession, QueueStatus, ScontrolJob, CancelJob, Sacct
+
 
 class RegexConverter(BaseConverter):
     def __init__(self, url_map, *items):
@@ -71,9 +78,18 @@ def run():
     app = utils.build_flask_app(__name__)
     app.config["APPLICATION_ROOT"] = '/pcui'
     app.config['MAX_COOKIE_SIZE'] = 65536
+    app.config["SECRET_KEY"] = "parallelcluster-ui-secret-key"
     app.json = PClusterJSONEncoder(app)
     app.url_map.converters["regex"] = RegexConverter
-    fingerprint_generator = AzureADFingerprintGenerator(CLIENT_ID, CLIENT_SECRET) if AUTH_TYPE == 'azuread' else CognitoFingerprintGenerator(CLIENT_ID, CLIENT_SECRET, USER_POOL_ID)
+
+    if AUTH_TYPE == 'azuread':
+        fingerprint_generator = AzureADFingerprintGenerator(CLIENT_ID, CLIENT_SECRET)
+    elif AUTH_TYPE == 'cognito':
+        fingerprint_generator = CognitoFingerprintGenerator(CLIENT_ID, CLIENT_SECRET, USER_POOL_ID)
+    elif AUTH_TYPE == 'idc':
+        fingerprint_generator = IdentityCenterFingerprintGenerator(IDC_SSO_URL, IDC_CERTIFICATE)
+    else:
+        fingerprint_generator = None
     CSRF(app, fingerprint_generator)
 
     @app.errorhandler(401)
@@ -192,13 +208,33 @@ def run():
         return scontrol_job()
 
     @app.route("/login")
-    #@validated(params=Login)
+    # @validated(params=Login)
     def login_():
         return login()
 
     @app.route("/logout")
     def logout_():
         return logout()
+
+    @app.route("/saml/login")
+    def saml_login():
+        auth = utils.init_saml_auth(request)
+        return redirect(auth.login())
+
+    @app.route("/saml/acs", methods=["POST"])
+    def saml_acs_():
+        return saml_acs()
+
+    @app.route("/saml/logout")
+    def saml_logout():
+        auth = utils.init_saml_auth(request)
+        resp = redirect(auth.logout())
+        resp.set_cookie("samlUserdata", "", expires=0)
+        return resp
+
+    @app.route("/saml/sls")
+    def saml_sls_():
+        return saml_sls()
 
     @app.route('/logs', methods=['POST'])
     @authenticated(ADMINS_GROUP)
@@ -215,7 +251,8 @@ def run():
     def catch_all(base):
         return utils.serve_frontend(app, base)
 
-    @app.route('/<regex("(home|clusters|users|configure|images).*"):base>/<path:u_path>', defaults={"base": "", "u_path": ""})
+    @app.route('/<regex("(home|clusters|users|configure|images).*"):base>/<path:u_path>',
+               defaults={"base": "", "u_path": ""})
     def catch_all2(base, u_path):
         return utils.serve_frontend(app, base)
 

@@ -127,6 +127,17 @@ export const isRegionSelectionDisabled = (path: string) => {
   return path.indexOf('/configure') !== -1
 }
 
+const getSignoutUrl = () => {
+  const appConfig: AppConfig = getState(['app', 'appConfig'])
+
+  const url = appConfig.authType === 'idc' ? '/saml/logout' : '/logout'
+  if (appConfig.redirectUri.includes('localhost')) {
+    return url
+  } else {
+    return `/pcui${url}`
+  }
+}
+
 export default function Topbar() {
   const {t} = useTranslation()
   let username = useState(['identity', 'attributes', 'email'])
@@ -149,16 +160,12 @@ export default function Topbar() {
     queryClient.invalidateQueries()
   }
 
-  const appConfig: AppConfig = getState(['app', 'appConfig'])
-
   const profileActions: ButtonDropdownProps.Items = useMemo(
     () => [
       {
         id: 'signout',
         text: t('global.topBar.signOut'),
-        href: appConfig.redirectUri.includes('localhost')
-          ? '/logout'
-          : '/pcui/logout',
+        href: getSignoutUrl(),
       },
     ],
     [t],

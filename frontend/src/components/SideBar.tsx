@@ -81,7 +81,7 @@ export default function SideBar() {
       activeHref={activeHref}
       onFollow={onFollow}
       items={
-        appConfig.authType == 'azuread'
+        appConfig.authType == 'azuread' || appConfig.authType == 'idc'
           ? navigationItemsNoUsers
           : navigationItems
       }

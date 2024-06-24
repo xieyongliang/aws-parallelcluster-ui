@@ -14,4 +14,6 @@ export interface AppConfig {
   clientId: string
   scopes: string
   redirectUri: string
+  samlLoginUri: string
+  samlLogoutUri: string
 }

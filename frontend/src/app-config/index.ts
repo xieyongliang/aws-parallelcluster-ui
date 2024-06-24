@@ -17,6 +17,8 @@ interface RawAppConfig {
   client_id: string
   scopes: string
   redirect_uri: string
+  saml_login_uri: string
+  saml_logout_uri: string
 }
 
 function mapAppConfig(data: RawAppConfig): AppConfig {
@@ -26,6 +28,8 @@ function mapAppConfig(data: RawAppConfig): AppConfig {
     clientId: data.client_id,
     redirectUri: data.redirect_uri,
     scopes: data.scopes,
+    samlLoginUri: data.saml_login_uri,
+    samlLogoutUri: data.saml_logout_uri,
   }
 }
 

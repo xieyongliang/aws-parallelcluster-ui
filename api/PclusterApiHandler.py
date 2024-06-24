@@ -18,19 +18,19 @@ import boto3
 import botocore
 import requests
 import yaml
-from flask import abort, redirect, request, Blueprint
+from flask import abort, redirect, request, Response, Blueprint
 from jose import jwt
 
 from api.exception.exceptions import RefreshTokenError
 from api.pcm_globals import set_auth_cookies_in_context, logger, auth_cookies
 from api.security.csrf.constants import CSRF_COOKIE_NAME
 from api.security.csrf.csrf import csrf_needed
-from api.utils import disable_auth, running_local
+from api.utils import disable_auth, init_saml_auth, running_local
 from api.validation import validated
 from api.validation.schemas import PCProxyArgs, PCProxyBody
 
 print(os.environ)
-AUTH_TYPE = os.getenv("AUTH_TYPE", "azuread")
+AUTH_TYPE = os.getenv("AUTH_TYPE", "idc")
 USER_POOL_ID = os.getenv("USER_POOL_ID")
 AUTH_PATH = os.getenv("AUTH_PATH")
 API_BASE_URL = os.getenv("API_BASE_URL")
@@ -53,6 +53,9 @@ REVOKE_REFRESH_TOKEN_URL = "https://graph.microsoft.com/v1.0/me/revokeSignInSess
 TOKEN_URL = f'https://login.microsoftonline.com/{TENANT_ID}/oauth2/v2.0/token' if AUTH_TYPE == "azuread" else f"{AUTH_PATH}/oauth2/token"
 AUTH_URL = f'https://login.microsoftonline.com/{TENANT_ID}/oauth2/v2.0/authorize' if AUTH_TYPE == "azuread" else f"{AUTH_PATH}/login"
 LOGOUT_URL = f'https://login.microsoftonline.com/{TENANT_ID}/oauth2/v2.0/logout'
+IDC_SSO_URL = os.getenv("IDC_SSO_URL")
+IDC_SLO_URL = os.getenv("IDC_SLO_URL")
+IDC_CERTIFICATE = os.getenv("IDC_CERTIFICATE")
 
 ADMINS_GROUP = os.getenv('ADMINS_GROUP')
 try:
@@ -81,6 +84,7 @@ if AUTH_TYPE == "cognito" and not JWKS_URL:
 elif not JWKS_URL:
     JWKS_URL = os.getenv("JWKS_URL")
 
+
 def jwt_decode(token, audience=None, access_token=None):
     return jwt.decode(token, requests.get(JWKS_URL).json(), audience=audience, access_token=access_token)
 
@@ -100,7 +104,7 @@ def setup_api_credentials(role_arn, credential_external_id=None):
 
 
 def sigv4_request(method, host, path, params={}, headers={}, body=None):
-    "Make a signed request to an api-gateway hosting an AWS ParallelCluster API."
+    """Make a signed request to an api-gateway hosting an AWS ParallelCluster API."""
     endpoint = host.replace("https://", "").replace("http://", "")
     _api_id, _service, region, _domain = endpoint.split(".", maxsplit=3)
 
@@ -138,6 +142,7 @@ def sigv4_request(method, host, path, params={}, headers={}, body=None):
 
     return req_call(boto_request.url, data=body_data, headers=boto_request.headers, timeout=30)
 
+
 def refresh_tokens(refresh_token):
     if AUTH_TYPE == "cognito":
         auth = requests.auth.HTTPBasicAuth(CLIENT_ID, CLIENT_SECRET)
@@ -151,7 +156,8 @@ def refresh_tokens(refresh_token):
     elif AUTH_TYPE == "azuread":
         resp = requests.post(
             TOKEN_URL,
-            data={"grant_type": 'refresh_token', "refresh_token": refresh_token, "client_id": CLIENT_ID, "client_secret": CLIENT_SECRET},
+            data={"grant_type": 'refresh_token', "refresh_token": refresh_token, "client_id": CLIENT_ID,
+                  "client_secret": CLIENT_SECRET},
             headers={"Content-Type": "application/x-www-form-urlencoded"},
         )
     else:
@@ -172,15 +178,16 @@ def refresh_tokens(refresh_token):
     else:
         raise Exception('Unsupported authentication type')
 
+
 def authenticate(groups):
     if disable_auth():
         return
 
     access_token = request.cookies.get("accessToken")
-    if not access_token:
-        return abort(401)
 
     if AUTH_TYPE == "cognito":
+        if not access_token:
+            return abort(401)
         try:
             decoded = jwt_decode(access_token)
         except jwt.ExpiredSignatureError:
@@ -202,13 +209,24 @@ def authenticate(groups):
         if len(groups_granted) == 0:
             return abort(403)
     elif AUTH_TYPE == "azuread":
+        if not access_token:
+            return abort(401)
         identity = _get_azuread_identity_from_token(access_token)
         azure_roles = identity["user_roles"]
         groups_granted = groups.intersection(azure_roles)
         if len(groups_granted) == 0:
             return abort(403)
+    elif AUTH_TYPE == "idc":
+        if "samlUserdata" not in request.cookies:
+            return abort(401)
+        user_data = json.loads(request.cookies.get("samlUserdata"))
+
+        groups_granted = groups.intersection(user_data.get("groups"))
+        if len(groups_granted) == 0:
+            return abort(403)
     else:
-        raise("Unsupported authentication type")
+        raise ("Unsupported authentication type")
+
 
 def authenticated(groups=ADMINS_GROUP):
     def _authenticated(func):
@@ -221,33 +239,42 @@ def authenticated(groups=ADMINS_GROUP):
 
     return _authenticated
 
+
 def get_scopes_list():
-  if AUTH_TYPE == "cognito" and not SCOPES_LIST:
-    return "openid"
-  elif AUTH_TYPE == "azuread" and not SCOPES_LIST:
-    return "https://graph.microsoft.com/.default"
-  elif "openid" not in SCOPES_LIST:
-    return SCOPES_LIST + " openid"
-  return SCOPES_LIST
+    if AUTH_TYPE == "cognito" and not SCOPES_LIST:
+        return "openid"
+    elif AUTH_TYPE == "azuread" and not SCOPES_LIST:
+        return "https://graph.microsoft.com/.default"
+    elif AUTH_TYPE == "idc" and not SCOPES_LIST:
+        return "saml"
+    elif "openid" not in SCOPES_LIST:
+        return SCOPES_LIST + " openid"
+    return SCOPES_LIST
+
 
 def get_redirect_uri():
-  return f"{SITE_URL}/login"
-  
+    return f"{SITE_URL}/login"
+
+
 # Local Endpoints
 
 
 def get_version():
     return {"version": API_VERSION}
 
+
 def get_app_config():
-  return {
-    "auth_type": AUTH_TYPE,
-    "auth_url": AUTH_URL,
-    "client_id": CLIENT_ID,
-    "oidc_provider": OIDC_PROVIDER,
-    "scopes": get_scopes_list(),
-    "redirect_uri": get_redirect_uri()
-  }
+    return {
+        "auth_type": AUTH_TYPE,
+        "auth_url": AUTH_URL,
+        "client_id": CLIENT_ID,
+        "oidc_provider": OIDC_PROVIDER,
+        "scopes": get_scopes_list(),
+        "redirect_uri": get_redirect_uri(),
+        "saml_login_uri": f"{SITE_URL}/saml/login",
+        "saml_logout_uri": IDC_SLO_URL,
+    }
+
 
 def ec2_action():
     if request.args.get("region"):
@@ -327,6 +354,7 @@ def ssm_command(region, instance_id, user, run_command):
 
     output = status["StandardOutputContent"]
     return output
+
 
 def _price_estimate(cluster_name, region, queue_name):
     config_text = get_cluster_config_text(cluster_name, region)
@@ -611,10 +639,11 @@ def _get_cognito_identity_from_token(decoded, claims):
         identity["username"] = decoded["username"]
 
     for claim in claims:
-      if claim in decoded:
-        identity["attributes"][claim] = decoded[claim]
+        if claim in decoded:
+            identity["attributes"][claim] = decoded[claim]
 
     return identity
+
 
 def _get_azuread_identity_from_token(access_token):
     identity = {"attributes": {}}
@@ -629,7 +658,7 @@ def _get_azuread_identity_from_token(access_token):
 
     identity["username"] = user_resp.json()["displayName"]
     identity["attributes"]["email"] = user_resp.json()["mail"] if user_resp.json()["mail"] else identity["username"]
-    identity["user_roles"]  = []
+    identity["user_roles"] = []
 
     memberof_resp = requests.get(
         f'{USER_URL}/memberOf',
@@ -641,6 +670,15 @@ def _get_azuread_identity_from_token(access_token):
 
     for _ in memberof_resp.json()["value"]:
         identity["user_roles"].append(_["displayName"])
+
+    return identity
+
+
+def _get_idc_identity_from_cookie():
+    user_data = json.loads(request.cookies.get("samlUserdata"))
+    identity = {"attributes": user_data}
+    identity["username"] = user_data.get("name")[0]
+    identity["user_roles"] = user_data.get("groups", [])
 
     return identity
 
@@ -680,6 +718,13 @@ def get_identity():
             raise Exception('No username present in access token.')
         if "user_roles" not in identity:
             raise Exception('No user_roles present in access or id token.')
+    elif AUTH_TYPE == "idc":
+        identity = _get_idc_identity_from_cookie()
+
+        if "username" not in identity:
+            raise Exception('No username present in saml response attributes.')
+        if "user_roles" not in identity:
+            raise Exception('No user_roles present in saml response attributes.')
     else:
         raise Exception('Unsupported authentication type')
 
@@ -717,12 +762,15 @@ def list_users():
             abort(user_resp.status_code)
 
         return {"users": []}
+    elif AUTH_TYPE == "idc":
+        return {"users": []}
     else:
-        raise('Unsupported authentication type')
+        raise ('Unsupported authentication type')
+
 
 def delete_user():
     cognito = boto3.client(
-        "cognito-idp", 
+        "cognito-idp",
         region_name=REGION,
         aws_access_key_id=ACCESS_KEY,
         aws_secret_access_key=SECRET_KEY
@@ -731,9 +779,10 @@ def delete_user():
     cognito.admin_delete_user(UserPoolId=USER_POOL_ID, Username=username)
     return {"Username": username}
 
+
 def create_user():
     cognito = boto3.client(
-        "cognito-idp", 
+        "cognito-idp",
         region_name=REGION,
         aws_access_key_id=ACCESS_KEY,
         aws_secret_access_key=SECRET_KEY
@@ -749,6 +798,7 @@ def create_user():
     cognito.admin_add_user_to_group(UserPoolId=USER_POOL_ID, Username=username, GroupName=list(ADMINS_GROUP)[0])
     return _augment_user(cognito, user)
 
+
 def login():
     code = request.args.get("code")
 
@@ -758,14 +808,16 @@ def login():
 
         code_resp = requests.post(
             TOKEN_URL,
-            data={"grant_type": "authorization_code", "code": code, "client_id": CLIENT_ID, "redirect_uri": get_redirect_uri()},
+            data={"grant_type": "authorization_code", "code": code, "client_id": CLIENT_ID,
+                  "redirect_uri": get_redirect_uri()},
             auth=auth,
             headers={"Content-Type": "application/x-www-form-urlencoded"},
         )
     elif AUTH_TYPE == "azuread":
         code_resp = requests.post(
             TOKEN_URL,
-            data={"grant_type": "authorization_code", "code": code, "client_id": CLIENT_ID, "client_secret": CLIENT_SECRET, "redirect_uri": get_redirect_uri(), "scope": get_scopes_list()},
+            data={"grant_type": "authorization_code", "code": code, "client_id": CLIENT_ID,
+                  "client_secret": CLIENT_SECRET, "redirect_uri": get_redirect_uri(), "scope": get_scopes_list()},
             headers={"Content-Type": "application/x-www-form-urlencoded"},
         )
     else:
@@ -787,10 +839,37 @@ def login():
         resp.set_cookie("refreshToken", refresh_token, httponly=True, secure=True, samesite="Lax")
     return resp
 
+
+def saml_acs():
+    auth = init_saml_auth(request)
+    auth.process_response()
+    errors = auth.get_errors()
+    if len(errors) == 0:
+        resp = redirect("/pcui/index.html", code=302)
+        resp.set_cookie("samlUserdata", json.dumps(auth.get_attributes()), httponly=True, secure=True, samesite="Lax")
+        return resp
+    else:
+        error = auth.get_last_error_reason()
+        return Response(f"Error: {error}", status=401)
+
+
+def saml_sls():
+    auth = init_saml_auth(request)
+    auth.process_slo()
+    errors = auth.get_errors()
+    if len(errors) == 0:
+        resp = redirect("/pcui/index.html", code=302)
+        resp.set_cookie("samlUserdata", "", expires=0)
+        return resp
+    else:
+        error = auth.get_last_error_reason()
+        return Response(f"Error: {error}", status=401)
+
+
 def logout():
     access_token = request.cookies.get('accessToken', None)
     refresh_token = request.cookies.get('refreshToken', None)
-    if AUTH_TYPE == "cognito" and  refresh_token is not None:
+    if AUTH_TYPE == "cognito" and refresh_token is not None:
         revoke_cognito_refresh_token(refresh_token)
     if AUTH_TYPE == "azuread" and access_token is not None:
         revoke_azuread_refresh_token(access_token)
@@ -802,6 +881,7 @@ def logout():
     resp.set_cookie("refreshToken", "", expires=0)
     resp.set_cookie(CSRF_COOKIE_NAME, "", expires=0)
     return resp
+
 
 def revoke_cognito_refresh_token(refresh_token):
     auth = requests.auth.HTTPBasicAuth(CLIENT_ID, CLIENT_SECRET)
@@ -852,6 +932,7 @@ def _get_params(_request):
 
 pc = Blueprint('pc', __name__)
 
+
 @pc.get('/', strict_slashes=False)
 @authenticated(ADMINS_GROUP)
 @validated(params=PCProxyArgs)
@@ -859,7 +940,8 @@ def pc_proxy_get():
     response = sigv4_request(request.method, API_BASE_URL, request.args.get("path"), _get_params(request))
     return response.json(), response.status_code
 
-@pc.route('/', methods=['POST','PUT','PATCH','DELETE'], strict_slashes=False)
+
+@pc.route('/', methods=['POST', 'PUT', 'PATCH', 'DELETE'], strict_slashes=False)
 @authenticated(ADMINS_GROUP)
 @csrf_needed
 @validated(params=PCProxyArgs, body=PCProxyBody, raise_on_missing_body=False)

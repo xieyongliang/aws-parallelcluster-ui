@@ -13,28 +13,47 @@ import {AppConfig} from '../app-config/types'
 import {generateRandomId} from '../util'
 
 export const handleNotAuthorizedErrors =
-  ({authType, authUrl, clientId, scopes, redirectUri}: AppConfig) =>
+  ({
+    authType,
+    authUrl,
+    clientId,
+    scopes,
+    redirectUri,
+    samlLoginUri,
+    samlLogoutUri,
+  }: AppConfig) =>
   async (requestPromise: Promise<any>) => {
     return requestPromise.catch(error => {
       switch ((error as AxiosError).response?.status) {
         case 401:
-          redirectToAuthServer(authType, authUrl, clientId, scopes, redirectUri)
+          redirectToAuthServer(
+            authType,
+            authUrl,
+            clientId,
+            scopes,
+            redirectUri,
+            samlLoginUri,
+          )
           return Promise.reject(error)
         case 403:
-          if (authType == 'azuread')
+          if (authType == 'azuread') {
             window.history.pushState(
               {},
               '',
               redirectUri.includes('localhost') ? '/logout' : '/pcui/logout',
             )
-          else
+          } else if (authType === 'cognito') {
             redirectToAuthServer(
               authType,
               authUrl,
               clientId,
               scopes,
               redirectUri,
+              samlLoginUri,
             )
+          } else if (authType === 'idc') {
+            window.location.replace(samlLogoutUri)
+          }
           return Promise.reject(error)
       }
       return Promise.reject(error)
@@ -47,6 +66,7 @@ function redirectToAuthServer(
   clientId: string,
   scopes: string,
   redirectUri: string,
+  samlLoginUri: string,
 ) {
   var url = `${authUrl}?response_type=code&client_id=${clientId}&scope=${encodeURIComponent(
     scopes,
@@ -55,6 +75,8 @@ function redirectToAuthServer(
     url += `&state=${generateRandomId()}`
   } else if (authType == 'azuread') {
     url += '&response_mode=query'
+  } else if (authType == 'idc') {
+    url = samlLoginUri
   }
   window.location.replace(url)
 }

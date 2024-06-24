@@ -12,16 +12,24 @@ import datetime
 import os
 
 import dateutil
-from flask import Flask, Response, request, send_from_directory
 import requests
+from flask import Flask, Response, request, send_from_directory
+from onelogin.saml2.auth import OneLogin_Saml2_Auth
 
-from api.pcm_globals import PCMGlobals, logger
 from api.exception import ExceptionHandler
 from api.logging import RequestResponseLogging
+from api.pcm_globals import PCMGlobals, logger
 from api.security import SecurityHeaders
 
+API_BASE_URL = os.getenv("API_BASE_URL")
+SITE_URL = os.getenv("SITE_URL", API_BASE_URL)
+IDC_SSO_URL = os.getenv("IDC_SSO_URL")
+IDC_SLO_URL = os.getenv("IDC_SLO_URL")
+IDC_CERTIFICATE = os.getenv("IDC_CERTIFICATE")
+
 # needed to only allow tests to disable auth
-DISABLE_AUTH=False
+DISABLE_AUTH = False
+
 
 def to_utc_datetime(time_in, default_timezone=datetime.timezone.utc) -> datetime.datetime:
     """
@@ -66,8 +74,10 @@ def to_iso_timestr(time_in: datetime.datetime) -> str:
 def running_local():
     return os.getenv("ENV") == "dev"
 
+
 def disable_auth():
     return DISABLE_AUTH
+
 
 def proxy_to(to_url):
     """
@@ -85,6 +95,51 @@ def proxy_to(to_url):
                if name.lower() not in excluded_headers]
     response = Response(resp.content, resp.status_code, headers)
     return response
+
+
+def prepare_saml_req(request):
+    return {
+        'https': 'on' if request.scheme == 'https' else 'off',
+        'http_host': request.host,
+        'script_name': request.path if running_local() else '/pcui' + request.path,
+        'get_data': request.args.copy(),
+        'post_data': request.form.copy()
+    }
+
+
+def init_saml_auth(request):
+    req = prepare_saml_req(request)
+
+    return OneLogin_Saml2_Auth(req, {
+        "strict": True,
+        "debug": True,
+        "sp": {
+            "entityId": f"{SITE_URL}/metadata/",
+            "assertionConsumerService": {
+                "url": f"{SITE_URL}/saml/acs",
+                "binding": "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-POST"
+            },
+            "singleLogoutService": {
+                "url": f"{SITE_URL}/saml/sls",
+                "binding": "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect"
+            },
+            "NameIDFormat": "urn:oasis:names:tc:SAML:1.1:nameid-format:unspecified",
+            "x509cert": "",
+            "privateKey": ""
+        },
+        "idp": {
+            "entityId": IDC_SSO_URL,
+            "singleSignOnService": {
+                "url": IDC_SSO_URL,
+                "binding": "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect"
+            },
+            "singleLogoutService": {
+                "url": IDC_SLO_URL,
+                "binding": "urn:oasis:names:tc:SAML:2.0:bindings:HTTP-Redirect"
+            },
+            "x509cert": IDC_CERTIFICATE
+        }
+    })
 
 
 def build_flask_app(name):

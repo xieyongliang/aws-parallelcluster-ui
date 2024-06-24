@@ -11,7 +11,8 @@
 import React, {useCallback, useEffect} from 'react'
 import {useSelector} from 'react-redux'
 import {useCollection} from '@cloudscape-design/collection-hooks'
-import {clearState, setState, useState} from '../../store'
+import {AppConfig} from '../../app-config/types'
+import {clearState, getState, setState, useState} from '../../store'
 
 import {DeleteUser, ListUsers} from '../../model'
 

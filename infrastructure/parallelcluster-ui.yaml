@@ -8,7 +8,7 @@ Parameters:
   PublicEcrImageUri:
     Description: When specified, the URI of the Docker image for the Lambda of the ParallelCluster UI container
     Type: String
-    Default: public.ecr.aws/pcui/parallelcluster-ui:2024.05.0
+    Default: public.ecr.aws/pcui/parallelcluster-ui:2024.06.0
   VpcEndpointId:
     Description: Enter a VPC endpoint with type interface for the execute-api service to enable private PCUI implementation. When enabled, the API will only accept requests from within the given VPC.
     Type: String
@@ -25,11 +25,12 @@ Parameters:
     AllowedValues:
       - cognito
       - azuread
-    Default: azuread
+      - idc
+    Default: idc
     Description: Supported authentication type.
     Type: String
   AdminsGroup:
-    Description: Admins group in JSON list format. Leave blank to use ["admin"] by default.
+    Description: Admins group in JSON list format. Leave blank to use ["admin"] by default. Use group ID list when idc AuthType selected.
     Type: String
   CognitoRegion:
     Description: Region in which Cognito stack was deployed.
@@ -60,6 +61,18 @@ Parameters:
     Default: ''
   AzureADTenantId:
     Description: The id of the Azure tenant.
+    Type: String
+    Default: ''
+  IdentityCenterSSOUrl:
+    Description: IAM Identity Center application metadata sign-in URL
+    Type: String
+    Default: ''
+  IdentityCenterSLOUrl:
+    Description: IAM Identity Center application metadata sign-out URL
+    Type: String
+    Default: ''
+  IdentityCenterCertificate:
+    Description: IAM Identity Center application metadata X509 certificate
     Type: String
     Default: ''
   Version:
@@ -126,6 +139,12 @@ Metadata:
           - AzureADAppClientSecret
           - AzureADTenantId
       - Label:
+          default: (Optional) External PCUI IAM Identity Center
+        Parameters:
+          - IdentityCenterSSOUrl
+          - IdentityCenterSLOUrl
+          - IdentityCenterCertificate
+      - Label:
           default: ParallelCluster API
         Parameters:
           - Version
@@ -174,11 +193,12 @@ Conditions:
   InCNCloud: !Equals ["aws-cn", !Ref "AWS::Partition"]
   AuthWithCognito: !Equals ["cognito", !Ref AuthType]
   AuthWithAzureAD: !Equals ["azuread", !Ref AuthType]
+  AuthWithIDC: !Equals ["idc", !Ref AuthType]
 
 Mappings:
   ParallelClusterUI:
     Constants:
-      Version: 2024.05.0 # format YYYY.MM.REVISION
+      Version: 2024.06.0 # format YYYY.MM.REVISION
 
 Resources:
 
@@ -297,6 +317,48 @@ Resources:
               - '-'
               - [!Select [2, !Split ['/', !Ref EcrImage]], !Select [3, !Split ['/', !Ref EcrImage]]]
 
+  ParallelClusterUIFunWithIDC:
+    Condition: AuthWithIDC
+    Type: AWS::Lambda::Function
+    Properties:
+      Role: !GetAtt ParallelClusterUIUserRole.Arn
+      PackageType: Image
+      MemorySize: 512
+      Timeout: 900
+      Tags:
+        - Key: 'parallelcluster:ui:version'
+          Value: !FindInMap [ ParallelClusterUI, Constants, Version ]
+      TracingConfig:
+        Mode: Active
+      VpcConfig:
+        Fn::If:
+          - IsPrivate
+          - SubnetIds: !Ref LambdaSubnetIds
+            SecurityGroupIds: !Ref LambdaSecurityGroupIds
+          - !Ref AWS::NoValue
+      Environment:
+        Variables:
+          API_BASE_URL: !GetAtt [ ParallelClusterApi, Outputs.ParallelClusterApiInvokeUrl ]
+          API_VERSION: !Ref Version
+          SITE_URL: !Sub
+            - https://${Api}.execute-api.${AWS::Region}.${AWS::URLSuffix}/pcui
+            - Api: !Ref ApiGatewayRestApi
+          AUTH_TYPE: !Ref AuthType
+          IDC_SSO_URL: !Ref IdentityCenterSSOUrl
+          IDC_SLO_URL: !Ref IdentityCenterSLOUrl
+          IDC_CERTIFICATE: !Ref IdentityCenterCertificate
+          ADMINS_GROUP: !Ref AdminsGroup
+      FunctionName: !Sub
+        - ParallelClusterUIFun-${StackIdSuffix}
+        - { StackIdSuffix: !Select [ 2, !Split [ '/', !Ref 'AWS::StackId' ] ] }
+      Code:
+        ImageUri: !Sub
+          - ${AWS::AccountId}.dkr.ecr.${AWS::Region}.${AWS::URLSuffix}/${Repository}:${Version}
+          - Repository: !Ref PrivateEcrRepository
+            Version: !Join
+              - '-'
+              - [ !Select [ 2, !Split [ '/', !Ref EcrImage ] ], !Select [ 3, !Split [ '/', !Ref EcrImage ] ] ]
+
   ApiGatewayProxyResource:
     Type: AWS::ApiGateway::Resource
     Properties:
@@ -369,7 +431,7 @@ Resources:
   ApiGatewayRestStage:
     Type: AWS::ApiGateway::Stage
     DependsOn: ApiGatewayAccount
-    Properties: 
+    Properties:
       AccessLogSetting:
         DestinationArn: !GetAtt ApiGatewayAccessLog.Arn
         Format: '{ "requestId":"$context.requestId", "ip": "$context.identity.sourceIp", "requestTime":"$context.requestTime", "httpMethod":"$context.httpMethod","path":"$context.path", "status":"$context.status","protocol":"$context.protocol", "responseLength":"$context.responseLength" }'
@@ -639,6 +701,13 @@ Resources:
       LogGroupName: !Sub /aws/lambda/${ParallelClusterUIFunWithAzureAD}
       RetentionInDays: 90
 
+  ParallelClusterUILambdaLogGroupWithIDC:
+    Condition: AuthWithIDC
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${ParallelClusterUIFunWithIDC}
+      RetentionInDays: 90
+
   ParallelClusterUIUserRole:
     Type: AWS::IAM::Role
     Properties:
@@ -666,7 +735,6 @@ Resources:
         - !Ref SsmGetCommandInvocationPolicy
       PermissionsBoundary: !If [UsePermissionBoundary, !Ref PermissionsBoundaryPolicy, !Ref 'AWS::NoValue']
 
-
   ParallelClusterUIApiGatewayInvokeWithCognito:
     Condition: AuthWithCognito
     Type: AWS::Lambda::Permission
@@ -684,6 +752,17 @@ Resources:
     Properties:
       Action: lambda:InvokeFunction
       FunctionName: !GetAtt ParallelClusterUIFunWithAzureAD.Arn
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub
+        - arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${ApiGateway}/*
+        - { ApiGateway: !Ref ApiGatewayRestApi }
+
+  ParallelClusterUIApiGatewayInvokeWithIDC:
+    Condition: AuthWithIDC
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !GetAtt ParallelClusterUIFunWithIDC.Arn
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub
         - arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${ApiGateway}/*
@@ -821,7 +900,6 @@ Resources:
                 - '*'
               Effect: Allow
               Sid: PricingPolicy
-
 
   SsmSendPolicy:
     Type: AWS::IAM::ManagedPolicy
