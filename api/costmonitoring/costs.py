@@ -4,10 +4,8 @@ import boto3
 from flask import Blueprint, request, jsonify
 
 from .costexplorer_client import CostExplorerClient, CostExplorerNotActiveException
-from ..PclusterApiHandler import {
-    authenticated,
-    ADMINS_GROUP
-}
+from ..PclusterApiHandler import authenticated
+from ..PclusterApiHandler import ADMINS_GROUP
 from ..pcm_globals import logger
 from ..security.csrf.csrf import csrf_needed
 from ..utils import to_utc_datetime
