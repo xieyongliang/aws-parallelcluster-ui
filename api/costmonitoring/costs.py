@@ -4,7 +4,10 @@ import boto3
 from flask import Blueprint, request, jsonify
 
 from .costexplorer_client import CostExplorerClient, CostExplorerNotActiveException
-from ..PclusterApiHandler import authenticated
+from ..PclusterApiHandler import {
+    authenticated,
+    ADMINS_GROUP
+}
 from ..pcm_globals import logger
 from ..security.csrf.csrf import csrf_needed
 from ..utils import to_utc_datetime
@@ -22,14 +25,14 @@ client = CostExplorerClient(costexplorer, cost_allocation_tags=COST_ALLOCATION_T
 
 
 @costs.get('')
-@authenticated({'admin'})
+@authenticated(ADMINS_GROUP)
 def cost_monitoring_status():
     active = client.is_active()
     return {'active': active}, 200
 
 
 @costs.put('')
-@authenticated({'admin'})
+@authenticated(ADMINS_GROUP)
 @csrf_needed
 def activate_cost_monitoring():
     client.activate()
@@ -37,7 +40,7 @@ def activate_cost_monitoring():
 
 
 @costs.get('/clusters/<cluster_name>')
-@authenticated({'admin'})
+@authenticated(ADMINS_GROUP)
 @validated(params=GetCostData)
 def get_cost_data_for(cluster_name):
     start = to_utc_datetime(request.args.get('start')).date().isoformat()
