@@ -172,49 +172,49 @@ function storageValidate() {
   return valid
 }
 
-const defaultRegion = useState(['aws', 'region'])
-const region = useState(['app', 'selectedRegion']) || defaultRegion
-
-const LUSTRE_PERSISTENT1_DEFAULT_THROUGHPUT = 200
-const LUSTRE_PERSISTENT2_DEFAULT_THROUGHPUT = region.startsWith('cn') ? 50 : 125
-const storageThroughputsP1 = [50, 100, LUSTRE_PERSISTENT1_DEFAULT_THROUGHPUT]
-const storageThroughputsP2 = region.startsWith('cn') ?
-[
-  LUSTRE_PERSISTENT2_DEFAULT_THROUGHPUT,
-  100,
-  200
-]
-:
-[
-  LUSTRE_PERSISTENT2_DEFAULT_THROUGHPUT,
-  250,
-  500,
-  1000,
-]
-
-const DEFAULT_DELETION_POLICY: DeletionPolicy = 'Retain'
-
-function isPersistentFsx(lustreType: string): boolean {
-  return ['PERSISTENT_1', 'PERSISTENT_2'].includes(lustreType)
-}
-
-function setDefaultStorageThroughput(
-  lustreType: string,
-  storageThroughputPath: string[],
-) {
-  if (isPersistentFsx(lustreType)) {
-    setState(
-      storageThroughputPath,
-      lustreType === 'PERSISTENT_1'
-        ? LUSTRE_PERSISTENT1_DEFAULT_THROUGHPUT
-        : LUSTRE_PERSISTENT2_DEFAULT_THROUGHPUT,
-    )
-  } else {
-    clearState(storageThroughputPath)
-  }
-}
-
 export function FsxLustreSettings({index}: any) {
+  const defaultRegion = useState(['aws', 'region'])
+  const region = useState(['app', 'selectedRegion']) || defaultRegion
+
+  const LUSTRE_PERSISTENT1_DEFAULT_THROUGHPUT = 200
+  const LUSTRE_PERSISTENT2_DEFAULT_THROUGHPUT = region.startsWith('cn') ? 50 : 125
+  const storageThroughputsP1 = [50, 100, LUSTRE_PERSISTENT1_DEFAULT_THROUGHPUT]
+  const storageThroughputsP2 = region.startsWith('cn') ?
+  [
+    LUSTRE_PERSISTENT2_DEFAULT_THROUGHPUT,
+    100,
+    200
+  ]
+  :
+  [
+    LUSTRE_PERSISTENT2_DEFAULT_THROUGHPUT,
+    250,
+    500,
+    1000,
+  ]
+
+  const DEFAULT_DELETION_POLICY: DeletionPolicy = 'Retain'
+
+  function isPersistentFsx(lustreType: string): boolean {
+    return ['PERSISTENT_1', 'PERSISTENT_2'].includes(lustreType)
+  }
+
+  function setDefaultStorageThroughput(
+    lustreType: string,
+    storageThroughputPath: string[],
+  ) {
+    if (isPersistentFsx(lustreType)) {
+      setState(
+        storageThroughputPath,
+        lustreType === 'PERSISTENT_1'
+          ? LUSTRE_PERSISTENT1_DEFAULT_THROUGHPUT
+          : LUSTRE_PERSISTENT2_DEFAULT_THROUGHPUT,
+      )
+    } else {
+      clearState(storageThroughputPath)
+    }
+  }
+
   const {t} = useTranslation()
   const isLustrePersistent2Active = useFeatureFlag('lustre_persistent2')
   const isDeletionPolicyEnabled = useFeatureFlag('lustre_deletion_policy')
