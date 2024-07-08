@@ -172,6 +172,8 @@ function storageValidate() {
   return valid
 }
 
+const DEFAULT_DELETION_POLICY: DeletionPolicy = 'Retain'
+
 export function FsxLustreSettings({index}: any) {
   const defaultRegion = useState(['aws', 'region'])
   const region = useState(['app', 'selectedRegion']) || defaultRegion
@@ -192,8 +194,6 @@ export function FsxLustreSettings({index}: any) {
     500,
     1000,
   ]
-
-  const DEFAULT_DELETION_POLICY: DeletionPolicy = 'Retain'
 
   function isPersistentFsx(lustreType: string): boolean {
     return ['PERSISTENT_1', 'PERSISTENT_2'].includes(lustreType)
