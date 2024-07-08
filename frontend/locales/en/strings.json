@@ -450,6 +450,7 @@
       "viewBudgets": "View Budgets and Alarms",
       "chart": {
         "yTitle": "Spent ($)",
+        "yTitle_cn": "Spent (¥)",
         "xTitle": "Months",
         "loadingText": "Loading spending data...",
         "errorText": "Could not load spending data.",

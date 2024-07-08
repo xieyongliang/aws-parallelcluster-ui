@@ -160,7 +160,7 @@ export function CostData({clusterName}: Props) {
       <BarChart
         hideFilter
         series={series}
-        yTitle={t('costMonitoring.costData.chart.yTitle')}
+        yTitle={region.startsWith('cn') ? t('costMonitoring.costData.chart.yTitle_cn') : t('costMonitoring.costData.chart.yTitle')}
         xTitle={t('costMonitoring.costData.chart.xTitle')}
         xScaleType="categorical"
         xDomain={last12Months}
