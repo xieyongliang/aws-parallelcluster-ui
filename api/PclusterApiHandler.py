@@ -30,7 +30,15 @@ from api.validation import validated
 from api.validation.schemas import PCProxyArgs, PCProxyBody
 
 print(os.environ)
-AUTH_TYPE = os.getenv("AUTH_TYPE", "idc")
+AUTH_TYPE = os.getenv("AUTH_TYPE")
+if AUTH_TYPE == "Amazon Cognito":
+    AUTH_TYPE = "cognito"
+elif AUTH_TYPE == "Amazon IAM Identity Center":
+    AUTH_TYPE = "idc"
+elif AUTH_TYPE == "Microsoft Entra ID (Azure Active Directory)":
+    AUTH_TYPE == "azuread"
+else:
+    AUTH_TYPE = "idc"
 USER_POOL_ID = os.getenv("USER_POOL_ID")
 AUTH_PATH = os.getenv("AUTH_PATH")
 API_BASE_URL = os.getenv("API_BASE_URL")

@@ -23,10 +23,10 @@ Parameters:
     Default: ''
   AuthType:
     AllowedValues:
-      - cognito
-      - azuread
-      - idc
-    Default: idc
+      - Amazon Cognito
+      - Amazon IAM Identity Center
+      - Microsoft Entra ID (Azure Active Directory)
+    Default: Amazon IAM Identity Center
     Description: Supported authentication type.
     Type: String
   AdminsGroup:
