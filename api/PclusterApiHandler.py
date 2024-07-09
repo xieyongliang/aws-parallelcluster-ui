@@ -36,7 +36,7 @@ if AUTH_TYPE == "Amazon Cognito":
 elif AUTH_TYPE == "Amazon IAM Identity Center":
     AUTH_TYPE = "idc"
 elif AUTH_TYPE == "Microsoft Entra ID (Azure Active Directory)":
-    AUTH_TYPE == "azuread"
+    AUTH_TYPE = "azuread"
 else:
     AUTH_TYPE = "idc"
 USER_POOL_ID = os.getenv("USER_POOL_ID")
