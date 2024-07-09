@@ -216,7 +216,9 @@ export function FsxLustreSettings({index}: any) {
   }
 
   const {t} = useTranslation()
-  const isLustrePersistent2Active = region.startsWith('cn') ? false : useFeatureFlag('lustre_persistent2')
+  var isLustrePersistent2Active = useFeatureFlag('lustre_persistent2')
+  if(region.startsWith('cn'))
+    isLustrePersistent2Active = false
   const isDeletionPolicyEnabled = useFeatureFlag('lustre_deletion_policy')
   const useExisting =
     useState(['app', 'wizard', 'storage', 'ui', index, 'useExisting']) || false
