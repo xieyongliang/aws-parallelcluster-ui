@@ -191,9 +191,9 @@ Conditions:
   UsePermissionBoundaryPCAPI: !Not [!Equals [!Ref PermissionsBoundaryPolicyPCAPI, '']]
   UseIAMRoleAndPolicyPrefix: !Not [!Equals [!Ref IAMRoleAndPolicyPrefix, '']]
   InCNCloud: !Equals ["aws-cn", !Ref "AWS::Partition"]
-  AuthWithCognito: !Equals ["cognito", !Ref AuthType]
-  AuthWithAzureAD: !Equals ["azuread", !Ref AuthType]
-  AuthWithIDC: !Equals ["idc", !Ref AuthType]
+  AuthWithCognito: !Equals ["Amazon Cognito", !Ref AuthType]
+  AuthWithAzureAD: !Equals ["Microsoft Entra ID (Azure Active Directory)", !Ref AuthType]
+  AuthWithIDC: !Equals ["Amazon IAM Identity Center", !Ref AuthType]
 
 Mappings:
   ParallelClusterUI:
