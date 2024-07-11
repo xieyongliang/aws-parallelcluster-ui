@@ -70,7 +70,8 @@
       "enteredTextLabel": "Use: '{{text}}'"
     },
     "loading": "Loading...",
-    "intlCurrency": "{{value, currency(USD)}}"
+    "intlCurrency": "{{value, currency(USD)}}",
+    "intlCurrency_cn": "{{value, currency(CNY)}}"
   },
   "errorBoundary": {
     "modal": {

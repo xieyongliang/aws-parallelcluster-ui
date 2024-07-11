@@ -110,7 +110,7 @@ export function CostData({clusterName}: Props) {
               type: 'bar',
               data: toSeriesData(last12Months, data),
               valueFormatter: (value: number) =>
-                t('global.intlCurrency', {value}),
+                region.startsWith('cn') ? t('global.intlCurrency_cn', {value}) : t('global.intlCurrency', {value}),
             },
           ]
         : [],
