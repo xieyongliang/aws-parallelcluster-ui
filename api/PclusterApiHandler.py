@@ -94,8 +94,9 @@ elif not JWKS_URL:
 
 
 def jwt_decode(token, audience=None, access_token=None):
-    return jwt.decode(token, requests.get(JWKS_URL).json(), audience=audience, access_token=access_token)
-
+    return jwt.decode(
+            token, requests.get(JWKS_URL).json(), audience=audience, access_token=access_token, algorithms=["RS256"]
+        )
 
 def setup_api_credentials(role_arn, credential_external_id=None):
     sts = boto3.client("sts")
@@ -363,6 +364,13 @@ def ssm_command(region, instance_id, user, run_command):
     output = status["StandardOutputContent"]
     return output
 
+def _get_instance_types_for_compute_resource(compute_resource):
+    if "Instances" in compute_resource:
+        return [instance["InstanceType"] for instance in compute_resource["Instances"]]
+    elif "InstanceType" in compute_resource:
+        return [compute_resource["InstanceType"]]
+    else:
+        raise Exception("Cannot find instance types for compute resource: %s".format(compute_resource))
 
 def _price_estimate(cluster_name, region, queue_name):
     config_text = get_cluster_config_text(cluster_name, region)
@@ -371,7 +379,10 @@ def _price_estimate(cluster_name, region, queue_name):
     queue = queues[queue_name]
 
     if len(queue["ComputeResources"]) == 1:
-        instance_type = queue["ComputeResources"][0]["InstanceType"]
+        instance_types = _get_instance_types_for_compute_resource(compute_resource=queue["ComputeResources"][0])
+        if len(instance_types) > 1:
+            return {"message": "Cost estimate not available for compute resources with multiple instance types."}, 400
+        instance_type = instance_types[0]
         pricing_filters = [
             {"Field": "tenancy", "Value": "shared", "Type": "TERM_MATCH"},
             {"Field": "instanceType", "Value": instance_type, "Type": "TERM_MATCH"},
